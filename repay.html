@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fonte Lenders - Luxury Repayment</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cormorant+Garamond:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* [Same CSS as index.html] */
+        
+        .repay-step {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .step-number {
+            background: var(--gold);
+            color: #000;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 10px;
+            font-weight: bold;
+            font-family: 'Cinzel Decorative';
+        }
+        
+        .verification-box {
+            background: linear-gradient(90deg, rgba(0,100,0,0.1), rgba(0,100,0,0.05));
+            border: 1px solid var(--green);
+            padding: 25px;
+            margin: 30px 0;
+            position: relative;
+        }
+        
+        .verification-box::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('https://www.transparenttextures.com/patterns/dark-leather.png');
+            opacity: 0.1;
+            z-index: -1;
+        }
+        
+        .flex-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+        
+        .flex-buttons a {
+            flex: 1;
+            text-align: center;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="luxury-frame">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <h1>FONTE LENDERS</h1>
+            <h2>Premium Repayment Center</h2>
+        </div>
+        
+        <div class="luxury-highlight">
+            <h3 style="margin-top: 0;">Payment Details</h3>
+            <p><strong>Paybill:</strong> 522533</p>
+            <p><strong>Account:</strong> 7883032</p>
+            <p><strong>Daily Late Penalty:</strong> 6%</p>
+        </div>
+        
+        <h3>Repayment Steps:</h3>
+        <div class="repay-step">
+            <div class="step-number">1</div>
+            <div>Go to <strong>M-PESA</strong> on your phone</div>
+        </div>
+        <div class="repay-step">
+            <div class="step-number">2</div>
+            <div>Select <strong>Lipa Na M-PESA</strong></div>
+        </div>
+        <div class="repay-step">
+            <div class="step-number">3</div>
+            <div>Choose <strong>Pay Bill</strong></div>
+        </div>
+        <div class="repay-step">
+            <div class="step-number">4</div>
+            <div>Enter Paybill <strong>522533</strong></div>
+        </div>
+        <div class="repay-step">
+            <div class="step-number">5</div>
+            <div>Account Number <strong>7883032</strong></div>
+        </div>
+        
+        <div class="verification-box">
+            <h3>Payment Verification</h3>
+            <div class="form-group">
+                <label>M-PESA Transaction Code</label>
+                <input type="text" placeholder="e.g. RF78X9B2">
+            </div>
+            <div class="form-group">
+                <label>Your Phone Number</label>
+                <input type="tel" placeholder="07XXXXXXXX" pattern="[0-9]{10}">
+            </div>
+            <button class="luxury-btn" onclick="verifyPayment()">VERIFY PAYMENT</button>
+            <p id="verification-status" style="text-align: center; margin-top: 15px;"></p>
+        </div>
+        
+        <div class="flex-buttons">
+            <a href="index.html" class="luxury-btn">NEW LOAN</a>
+            <a href="admin.html" class="luxury-btn">ADMIN</a>
+        </div>
+    </div>
+
+    <script>
+        function verifyPayment() {
+            const status = document.getElementById('verification-status');
+            status.innerHTML = '<span style="color: var(--gold);">✓ Verification request received...</span>';
+            
+            setTimeout(() => {
+                status.innerHTML = '<span style="color: var(--green);">✓ Payment confirmed. Thank you!</span>';
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

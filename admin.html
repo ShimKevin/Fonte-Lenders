@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fonte Lenders - Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cormorant+Garamond:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --gold: #FFD700;
+            --dark-gold: #D4AF37;
+            --dark-bg: #121212;
+            --darker-bg: rgba(10, 10, 10, 0.95);
+            --text: #e0e0e0;
+            --green: #4CAF50;
+            --red: #f44336;
+        }
+
+        body {
+            background: 
+                radial-gradient(circle at 20% 30%, var(--dark-bg) 0%, #000000 100%),
+                url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000') no-repeat center center fixed;
+            background-size: cover;
+            background-blend-mode: multiply;
+            font-family: 'Cormorant Garamond', serif;
+            color: var(--text);
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            line-height: 1.8;
+        }
+
+        .luxury-frame {
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 50px;
+            background: var(--darker-bg);
+            width: 85%;
+            max-width: 900px;
+            box-shadow: 
+                0 0 30px rgba(255, 215, 0, 0.2),
+                0 0 60px rgba(0, 0, 0, 0.5);
+            position: relative;
+            margin: 40px 0;
+            backdrop-filter: blur(5px);
+        }
+
+        .frame-corner {
+            position: absolute;
+            width: 35px;
+            height: 35px;
+            border: 2px solid var(--gold);
+            opacity: 0.7;
+        }
+        .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+        .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+        .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+        h1, h2, h3 {
+            color: var(--gold);
+            font-family: 'Cinzel Decorative', serif;
+            text-align: center;
+            letter-spacing: 1px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+        }
+
+        .logo-header {
+            margin-bottom: 40px;
+            border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+            padding-bottom: 25px;
+            position: relative;
+        }
+
+        .luxury-btn {
+            background: linear-gradient(135deg, var(--gold), var(--dark-gold));
+            color: #000;
+            border: none;
+            padding: 16px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.3s;
+            cursor: pointer;
+            font-family: 'Cinzel Decorative';
+        }
+
+        .luxury-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4);
+        }
+
+        .admin-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .admin-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            padding: 25px;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .admin-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('https://www.transparenttextures.com/patterns/dark-leather.png');
+            opacity: 0.1;
+            z-index: -1;
+        }
+
+        .admin-card:hover {
+            border-color: var(--gold);
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.2);
+        }
+
+        .admin-card h3 {
+            border-bottom: 1px solid rgba(255, 215, 0, 0.3);
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+
+        .login-form {
+            text-align: center;
+            padding: 30px;
+        }
+
+        .login-form input {
+            width: 100%;
+            padding: 14px;
+            margin: 10px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            color: white;
+            font-family: 'Cormorant Garamond';
+            font-size: 16px;
+        }
+
+        .error-message {
+            color: var(--red);
+            margin: 15px 0;
+            font-weight: bold;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="luxury-frame" id="login-container">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <h1>FONTE LENDERS</h1>
+            <h2>Administration Portal</h2>
+        </div>
+        
+        <div class="login-form">
+            <input type="password" id="password-input" placeholder="Enter Admin Password">
+            <div id="error-message" class="error-message hidden">Invalid password</div>
+            <button class="luxury-btn" onclick="checkPassword()" style="width: 100%; margin-top: 15px;">LOGIN</button>
+        </div>
+    </div>
+
+    <div class="luxury-frame hidden" id="admin-content">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <h1>FONTE LENDERS</h1>
+            <h2>Administration Portal</h2>
+        </div>
+        
+        <div class="admin-grid">
+            <div class="admin-card">
+                <h3>Loan Applications</h3>
+                <p>23 pending approvals</p>
+                <button class="luxury-btn" style="width: 100%; margin-top: 15px;">VIEW</button>
+            </div>
+            
+            <div class="admin-card">
+                <h3>Repayments</h3>
+                <p>KES 184,500 received today</p>
+                <button class="luxury-btn" style="width: 100%; margin-top: 15px;">VIEW</button>
+            </div>
+            
+            <div class="admin-card">
+                <h3>Defaulters</h3>
+                <p>7 accounts overdue</p>
+                <button class="luxury-btn" style="width: 100%; margin-top: 15px;">VIEW</button>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px;">
+            <button class="luxury-btn" onclick="logout()" style="background: linear-gradient(135deg, var(--red), #c62828) !important; padding: 15px 30px;">LOGOUT</button>
+        </div>
+    </div>
+
+    <script>
+        // Authorized users
+        const authorizedUsers = {
+            "Shimanjala@12": "Admin User 1",
+            "Mamaethan@19": "Admin User 2"
+        };
+
+        // Check password function
+        function checkPassword() {
+            const password = document.getElementById("password-input").value;
+            const errorElement = document.getElementById("error-message");
+            
+            if (authorizedUsers[password]) {
+                // Successful login
+                document.getElementById("login-container").classList.add("hidden");
+                document.getElementById("admin-content").classList.remove("hidden");
+                errorElement.classList.add("hidden");
+                
+                // Store login state in session
+                sessionStorage.setItem("adminAuthenticated", "true");
+            } else {
+                // Failed login
+                errorElement.classList.remove("hidden");
+                document.getElementById("password-input").value = "";
+            }
+        }
+
+        // Logout function
+        function logout() {
+            sessionStorage.removeItem("adminAuthenticated");
+            document.getElementById("login-container").classList.remove("hidden");
+            document.getElementById("admin-content").classList.add("hidden");
+            document.getElementById("password-input").value = "";
+            document.getElementById("error-message").classList.add("hidden");
+        }
+
+        // Check if already logged in when page loads
+        window.addEventListener('load', function() {
+            if (sessionStorage.getItem("adminAuthenticated")) {
+                document.getElementById("login-container").classList.add("hidden");
+                document.getElementById("admin-content").classList.remove("hidden");
+            }
+        });
+
+        // Allow login on Enter key press
+        document.getElementById("password-input").addEventListener("keyup", function(event) {
+            if (event.key === "Enter") {
+                checkPassword();
+            }
+        });
+    </script>
+</body>
+</html>

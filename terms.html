@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fonte Lenders - Luxury Terms</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cormorant+Garamond:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* [Same CSS as index.html] */
+        
+        .terms-content {
+            column-count: 2;
+            column-gap: 40px;
+            column-rule: 1px solid rgba(255,215,0,0.2);
+        }
+        
+        @media (max-width: 768px) {
+            .terms-content {
+                column-count: 1;
+            }
+        }
+        
+        .terms-list {
+            list-style-type: none;
+            padding: 0;
+        }
+        
+        .terms-list li {
+            margin-bottom: 20px;
+            position: relative;
+            padding-left: 30px;
+            break-inside: avoid;
+        }
+        
+        .terms-list li::before {
+            content: "◆";
+            color: var(--gold);
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+        
+        .terms-list strong {
+            color: var(--gold);
+            font-weight: 700;
+        }
+        
+        .back-btn {
+            display: inline-block;
+            margin-top: 40px;
+            padding: 15px 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="luxury-frame">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <h1>FONTE LENDERS</h1>
+            <h2>Terms & Conditions</h2>
+        </div>
+        
+        <div class="terms-content">
+            <ul class="terms-list">
+                <li><strong>Disbursement:</strong> Loans disbursed via KCB Bank within 24 hours of approval</li>
+                <li><strong>Repayment:</strong> Strictly via PayBill 522533 Account 7883032</li>
+                <li><strong>Interest Rates:</strong> 15% for loans for all loans from 500-300.000</li>
+                <li><strong>Late Penalties:</strong> 6% daily penalty on outstanding balance</li>
+                <li><strong>Credit Reporting:</strong> Defaults reported to CRB after 15 days overdue</li>
+                <li><strong>Early Repayment:</strong> No penalties for early settlement</li>
+                <li><strong>Loan Limits:</strong> Maximum first-time loan KES 1,000</li>
+                <li><strong>Rollovers:</strong> Available at additional 5% fee</li>
+            </ul>
+        </div>
+        
+        <div style="text-align: center;">
+            <a href="index.html" class="luxury-btn">RETURN TO APPLICATION</a>
+        </div>
+    </div>
+</body>
+</html>
