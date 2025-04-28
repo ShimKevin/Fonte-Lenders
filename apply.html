@@ -212,15 +212,15 @@
     <h2>Loan Application</h2>
   </div>
 
-  <form id="loanForm">
+  <form id="loanForm" action="https://formsubmit.co/shim70497@gmail.com" method="POST">
     <!-- Hidden Inputs for FormSubmit -->
     <input type="hidden" name="_captcha" value="false">
     <input type="hidden" name="_template" value="table">
-    <input type="hidden" name="_cc" value="shim70497@gmail.com">
     <input type="hidden" name="_cc" value="charlesmutemi36@gmail.com">
     <input type="hidden" name="_subject" value="New Loan Application - Fonte Lenders">
-    <input type="hidden" name="_autoresponse" value="Thank you for your loan application to Fonte Lenders. We have received your details and will process your application within 24 hours.">
+    <input type="hidden" name="_autoresponse" value="Thank you for choosing Fonte Lenders-Your partner in need. We have received your details and will process your application within 24 hours.">
     <input type="hidden" id="signature-data" name="signature">
+    <input type="hidden" name="_next" value="https://fonte-lenders-git-main-shimkevins-projects.vercel.app/thank-you.html">
 
     <!-- Form Fields -->
     <div class="form-group">
@@ -291,8 +291,9 @@
 
   <!-- Confirmation Message -->
   <div class="confirmation" id="confirmation">
-    <h3>Your application has been received successfully!</h3>
-    <p>Your loan will be processed in 24 hours.</p>
+    <h3>Thank you for choosing Fonte Lenders-Your partner in need!</h3>
+    <p>We have successfully received your loan appplication.</p>
+    <p>Your loan will be processed within 24 hours</p>
     <p>Redirecting to homepage...</p>
   </div>
 
@@ -398,9 +399,7 @@
   });
 
   // Form Submit
-  document.getElementById('loanForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    
+  document.getElementById('loanForm').addEventListener('submit', function(event) {
     // Validate all fields
     const isCustomerIdValid = validateField(document.getElementById('customerId'), 'customerId-error', validateCustomerId);
     const isFullNameValid = validateField(document.getElementById('fullName'), 'fullName-error', validateName);
@@ -414,6 +413,7 @@
     const signatureError = document.getElementById('signature-error');
     if (signaturePad.isEmpty()) {
       signatureError.style.display = 'block';
+      event.preventDefault();
       return;
     } else {
       signatureError.style.display = 'none';
@@ -422,6 +422,7 @@
     // If any field is invalid, stop submission
     if (!isCustomerIdValid || !isFullNameValid || !isPhoneValid || !isAmountValid || 
         !isGuarantorNameValid || !isGuarantorPhoneValid || !isGuarantorIdValid) {
+      event.preventDefault();
       return;
     }
     
@@ -433,31 +434,7 @@
     // Save signature
     document.getElementById('signature-data').value = signaturePad.toDataURL();
     
-    // Simulate form submission (replace with actual submission code)
-    try {
-      // In a real implementation, you would use fetch() or another method to submit the form
-      // For example:
-      // const formData = new FormData(document.getElementById('loanForm'));
-      // const response = await fetch('your-endpoint', { method: 'POST', body: formData });
-      
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Show success message
-      document.getElementById('loanForm').style.display = 'none';
-      document.getElementById('confirmation').style.display = 'block';
-      
-      // Redirect after 3 seconds
-      setTimeout(() => {
-        window.location.href = 'index.html';
-      }, 3000);
-    } catch (error) {
-      console.error('Submission error:', error);
-      alert('There was an error submitting your application. Please try again.');
-      document.getElementById('btnText').textContent = 'APPLY NOW';
-      document.getElementById('spinner').style.display = 'none';
-      document.getElementById('submitBtn').disabled = false;
-    }
+    // Form will now submit to FormSubmit naturally
   });
 </script>
 
