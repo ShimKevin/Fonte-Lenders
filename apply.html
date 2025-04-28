@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -215,13 +216,13 @@
             <h2>Loan Application</h2>
         </div>
 
-        <form id="loanForm" action="https://formsubmit.co/kevinshimanjala@gmail.com" method="POST">
+        <form id="loanForm" action="https://formsubmit.co/ajax/kevinshimanjala@gmail.com" method="POST">
             <!-- FormSubmit Configuration -->
             <input type="hidden" name="_captcha" value="false">
-            <input type="hidden" name="_next" value="https://fonte-lenders-git-main-shimkevins-projects.vercel.app/apply.html#confirmation">
             <input type="hidden" name="_template" value="table">
             <input type="hidden" name="_cc" value="charlesmutemi36@gmail.com">
-            <input type="hidden" name="_subject" value="New Loan Application">
+            <input type="hidden" name="_subject" value="New Loan Application - Fonte Lenders">
+            <input type="hidden" name="_autoresponse" value="Thank you for your loan application to Fonte Lenders. We have received your details and will process your application within 24 hours.">
             
             <!-- Signature Data -->
             <input type="hidden" id="signature-data" name="signature">
@@ -330,7 +331,7 @@
             <h3>Application Submitted Successfully!</h3>
             <p>Your application has been sent to both recipients:</p>
             <ul style="text-align: left; width: fit-content; margin: 10px auto;">
-                <li>shim70497@gmail.com</li>
+                <li>kevinshimanjala@gmail.com</li>
                 <li>charlesmutemi36@gmail.com</li>
             </ul>
             <p>Your loan will be processed in 24 hours.</p>
@@ -393,7 +394,9 @@
         };
 
         // Form submission handler
-        document.getElementById('loanForm').addEventListener('submit', function(e) {
+        document.getElementById('loanForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
             // Validate all fields
             const validations = [
                 validateField('fullname', { minLength: 3 }),
@@ -407,7 +410,6 @@
             
             // Validate signature
             if (signaturePad.isEmpty()) {
-                e.preventDefault();
                 document.getElementById('signature-status').style.display = 'inline';
                 alert('Please provide your signature');
                 return;
@@ -417,21 +419,49 @@
             
             // Validate terms checkbox
             if (!document.getElementById('terms').checked) {
-                e.preventDefault();
                 alert('You must agree to the terms and conditions');
                 return;
             }
 
             // Check if all validations passed
-            if (validations.some(valid => !valid)) {
-                e.preventDefault();
-                return;
-            }
+            if (validations.some(valid => !valid)) return;
 
             // Disable submit button during submission
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.disabled = true;
             document.getElementById('btnText').innerHTML = '<span class="spinner"></span> Processing...';
+
+            try {
+                // Get form data
+                const formData = new FormData(document.getElementById('loanForm'));
+                const formObject = Object.fromEntries(formData.entries());
+
+                // Submit using FormSubmit's AJAX endpoint
+                const response = await fetch('https://formsubmit.co/ajax/kevinshimanjala@gmail.com', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(formObject)
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success === "true") {
+                    // Show confirmation message
+                    document.getElementById('loanForm').style.display = 'none';
+                    document.getElementById('confirmation').style.display = 'block';
+                } else {
+                    throw new Error(result.message || 'Submission failed');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Submission failed. Please try again or contact support.');
+            } finally {
+                submitBtn.disabled = false;
+                document.getElementById('btnText').textContent = 'APPLY NOW';
+            }
         });
 
         // Show confirmation if URL has hash
