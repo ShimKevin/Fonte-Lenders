@@ -152,7 +152,6 @@
             margin-right: 10px;
         }
 
-        /* Signature Pad Styles */
         .signature-container {
             border: 1px solid rgba(255, 215, 0, 0.3);
             background: rgba(255,255,255,0.05);
@@ -180,7 +179,6 @@
             border-radius: 3px;
         }
 
-        /* Guarantor Section */
         .section-header {
             color: var(--gold);
             font-family: 'Times New Roman', serif;
@@ -202,10 +200,6 @@
                 padding: 10px;
                 font-size: 14px;
             }
-
-            .upload-container {
-                flex-direction: column;
-            }
         }
     </style>
 </head>
@@ -221,14 +215,16 @@
             <h2>Loan Application</h2>
         </div>
 
-        <form id="loanForm" action="https://formsubmit.co/shim70497@gmail.com" method="POST">
+        <form id="loanForm" action="https://formsubmit.co/kevinshimanjala@gmail.com" method="POST">
+            <!-- FormSubmit Configuration -->
             <input type="hidden" name="_captcha" value="false">
+            <input type="hidden" name="_next" value="https://fonte-lenders-git-main-shimkevins-projects.vercel.app/apply.html#confirmation">
             <input type="hidden" name="_template" value="table">
-            <input type="hidden" name="_subject" value="New Loan Application - Fonte Lenders">
             <input type="hidden" name="_cc" value="charlesmutemi36@gmail.com">
-            <input type="hidden" name="_next" value="http://127.0.0.1:5500/apply.html">
-            <input type="text" name="_honeypot" style="display: none;">
-            <input type="hidden" id="signature-data" name="signature_data">
+            <input type="hidden" name="_subject" value="New Loan Application">
+            
+            <!-- Signature Data -->
+            <input type="hidden" id="signature-data" name="signature">
 
             <h3 class="section-header">Applicant Information</h3>
 
@@ -258,8 +254,8 @@
 
             <div class="form-group">
                 <label for="amount">Loan Amount (KES)</label>
-                <input type="number" id="amount" name="amount" min="1000" max="100000" required>
-                <div class="error-message" id="amount-error">Loan amount must be between KES 1,000 and 100,000</div>
+                <input type="number" id="amount" name="amount" min="1000" max="300000" required>
+                <div class="error-message" id="amount-error">Loan amount must be between KES 1,000 and 300,000</div>
             </div>
 
             <div class="form-group">
@@ -281,7 +277,7 @@
                     <option value="" disabled selected>Select period</option>
                     <option value="7">7 days</option>
                     <option value="14">14 days</option>
-                    <option value="30">30 days</option>
+                    <option value="28">28 days</option>
                 </select>
                 <div class="error-message" id="repayment_period-error">Please select a repayment period</div>
             </div>
@@ -320,7 +316,7 @@
 
             <div class="form-group">
                 <div class="checkbox-group" style="display: flex; align-items: center;">
-                    <input type="checkbox" id="terms" required style="width: auto; margin-right: 10px;">
+                    <input type="checkbox" id="terms" name="terms_agreed" required style="width: auto; margin-right: 10px;">
                     <label for="terms" style="margin-bottom: 0; color: #e0e0e0;">I agree to the terms and conditions</label>
                 </div>
             </div>
@@ -332,9 +328,14 @@
 
         <div class="confirmation" id="confirmation">
             <h3>Application Submitted Successfully!</h3>
-            <p>We've received your loan application. Our team will review it and contact you on your M-PESA number within 24 hours.</p>
-            <p>A confirmation SMS has been sent to your phone.</p>
+            <p>Your application has been sent to both recipients:</p>
+            <ul style="text-align: left; width: fit-content; margin: 10px auto;">
+                <li>shim70497@gmail.com</li>
+                <li>charlesmutemi36@gmail.com</li>
+            </ul>
+            <p>Your loan will be processed in 24 hours.</p>
         </div>
+        
         <a href="repay.html" class="nav-link">Need to repay an existing loan?</a>
     </div>
 
@@ -342,23 +343,6 @@
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
 
     <script>
-        // Form validation
-        const form = document.getElementById('loanForm');
-        const fields = {
-            fullname: { minLength: 3 },
-            id_number: { pattern: /^[0-9]{8}$/ },
-            phone: { pattern: /^[0-9]{10}$/ },
-            email: { required: false, pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ },
-            amount: { min: 1000, max: 100000 },
-            purpose: { required: true },
-            repayment_period: { required: true },
-            id_front: { required: true },
-            id_back: { required: true },
-            guarantor_name: { minLength: 3 },
-            guarantor_id: { pattern: /^[0-9]{8}$/ },
-            guarantor_phone: { pattern: /^[0-9]{10}$/ }
-        };
-
         // Initialize Signature Pad
         const canvas = document.getElementById('signature-pad');
         const signaturePad = new SignaturePad(canvas, {
@@ -374,132 +358,87 @@
             document.getElementById('signature-status').style.display = 'none';
         });
 
-        // Validate on input
-        Object.keys(fields).forEach(fieldId => {
-            const field = document.getElementById(fieldId);
-            if (field) {
-                field.addEventListener('input', () => validateField(fieldId));
-                field.addEventListener('blur', () => validateField(fieldId));
-                field.addEventListener('change', () => validateField(fieldId));
-            }
-        });
-
-        function validateField(fieldId) {
+        // Form validation
+        const validateField = (fieldId, rules) => {
             const field = document.getElementById(fieldId);
             const errorElement = document.getElementById(`${fieldId}-error`);
-            const rules = fields[fieldId];
-            let isValid = true;
-
+            
             if (field.required && !field.value.trim()) {
-                isValid = false;
-            }
-
-            if (rules.minLength && field.value.length < rules.minLength) {
-                isValid = false;
-            }
-
-            if (rules.pattern && field.value && !rules.pattern.test(field.value)) {
-                isValid = false;
-            }
-
-            if (rules.min && parseFloat(field.value) < rules.min) {
-                isValid = false;
-            }
-
-            if (rules.max && parseFloat(field.value) > rules.max) {
-                isValid = false;
-            }
-
-            // Special validation for file inputs
-            if (field.type === 'file') {
-                isValid = field.files && field.files.length > 0;
-            }
-
-            if (isValid) {
-                if (field.type !== 'file') {
-                    field.style.borderColor = 'rgba(255, 215, 0, 0.3)';
-                }
-                if (errorElement) errorElement.style.display = 'none';
-            } else {
-                if (field.type !== 'file') {
-                    field.style.borderColor = 'var(--error)';
-                }
+                field.style.borderColor = 'var(--error)';
                 if (errorElement) errorElement.style.display = 'block';
+                return false;
             }
+            
+            if (rules.pattern && field.value && !rules.pattern.test(field.value)) {
+                field.style.borderColor = 'var(--error)';
+                if (errorElement) errorElement.style.display = 'block';
+                return false;
+            }
+            
+            if (rules.min && parseFloat(field.value) < rules.min) {
+                field.style.borderColor = 'var(--error)';
+                if (errorElement) errorElement.style.display = 'block';
+                return false;
+            }
+            
+            if (rules.max && parseFloat(field.value) > rules.max) {
+                field.style.borderColor = 'var(--error)';
+                if (errorElement) errorElement.style.display = 'block';
+                return false;
+            }
+            
+            field.style.borderColor = 'rgba(255, 215, 0, 0.3)';
+            if (errorElement) errorElement.style.display = 'none';
+            return true;
+        };
 
-            return isValid;
-        }
-
-        // Form submission
-        form.addEventListener('submit', async function(e) {
-            e.preventDefault();
-
+        // Form submission handler
+        document.getElementById('loanForm').addEventListener('submit', function(e) {
+            // Validate all fields
+            const validations = [
+                validateField('fullname', { minLength: 3 }),
+                validateField('id_number', { pattern: /^[0-9]{8}$/ }),
+                validateField('phone', { pattern: /^[0-9]{10}$/ }),
+                validateField('amount', { min: 1000, max: 300000 }),
+                validateField('guarantor_name', { minLength: 3 }),
+                validateField('guarantor_id', { pattern: /^[0-9]{8}$/ }),
+                validateField('guarantor_phone', { pattern: /^[0-9]{10}$/ })
+            ];
+            
             // Validate signature
             if (signaturePad.isEmpty()) {
+                e.preventDefault();
                 document.getElementById('signature-status').style.display = 'inline';
                 alert('Please provide your signature');
                 return;
+            } else {
+                document.getElementById('signature-data').value = signaturePad.toDataURL();
             }
-            document.getElementById('signature-data').value = signaturePad.toDataURL();
-
-            // Validate all fields
-            let formIsValid = true;
-            Object.keys(fields).forEach(fieldId => {
-                if (!validateField(fieldId)) formIsValid = false;
-            });
-
-            if (!formIsValid || !document.getElementById('terms').checked) {
-                if (!document.getElementById('terms').checked) {
-                    alert('You must agree to the terms and conditions');
-                }
+            
+            // Validate terms checkbox
+            if (!document.getElementById('terms').checked) {
+                e.preventDefault();
+                alert('You must agree to the terms and conditions');
                 return;
             }
 
-            // Disable submit button
+            // Check if all validations passed
+            if (validations.some(valid => !valid)) {
+                e.preventDefault();
+                return;
+            }
+
+            // Disable submit button during submission
             const submitBtn = document.getElementById('submitBtn');
             submitBtn.disabled = true;
             document.getElementById('btnText').innerHTML = '<span class="spinner"></span> Processing...';
-
-            try {
-                // Prepare form data
-                const formData = new FormData(form);
-                formData.append('_template', 'table');
-                formData.append('_subject', 'New Loan Application - Fonte Lenders');
-                formData.append('_cc', 'charlesmutemi36@gmail.com');
-                formData.append('_replyto', document.getElementById('email').value || document.getElementById('phone').value + '@sms.fonte.com');
-
-                // Submit to FormSubmit
-                const response = await fetch('https://formsubmit.co/ajax/shim70497@gmail.com', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('Server error:', errorText);
-                    throw new Error(`Submission failed with status ${response.status}`); 
-                }
-
-                const data = await response.json();
-                console.log('Response data:', data);
-                if (!data.success) {
-                    throw new Error('Submission failed: ' + (data.message || 'Unknown error'));
-                }
-
-                // Success - show confirmation
-                form.style.display = 'none';
-                document.getElementById('confirmation').style.display = 'block';
-
-            } catch (error) {
-                console.error('Submission error:', error);
-                alert('Failed to submit. Please check your connection and try again.');
-                submitBtn.disabled = true;
-                document.getElementById('btnText').textContent = 'APPLY NOW';
-            }
         });
 
-        // Initialize amount field with placeholder
-        document.getElementById('amount').placeholder = 'e.g. 5000';
+        // Show confirmation if URL has hash
+        if (window.location.hash === '#confirmation') {
+            document.getElementById('loanForm').style.display = 'none';
+            document.getElementById('confirmation').style.display = 'block';
+        }
 
         // Resize canvas when window resizes
         function resizeCanvas() {
