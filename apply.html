@@ -223,52 +223,58 @@
     <!-- Form Fields -->
     <div class="form-group">
       <label for="customerId">Customer ID</label>
-      <input type="text" id="customerId" name="customerId" required pattern="[A-Za-z0-9]{6,12}" 
-             title="Customer ID must be 6-12 alphanumeric characters">
-      <div class="error-message" id="customerId-error">Please enter a valid Customer ID (6-12 alphanumeric characters)</div>
+      <input type="text" id="customerId" name="customerId" placeholder="Your national ID or Passport" required pattern="[A-Za-z0-9]{6,8}" 
+             title="Customer ID must be 6-8 alphanumeric characters">
+      <div class="error-message" id="customerId-error">Please enter a valid Customer ID (6-8 alphanumeric characters)</div>
     </div>
-
+    
     <div class="form-group">
       <label for="fullName">Full Name</label>
       <input type="text" id="fullName" name="fullName" required pattern="[A-Za-z ]{3,}" 
-             title="Please enter your full name (letters only)">
+             title="Please enter your full name (letters only)" placeholder="Enter your full name">
       <div class="error-message" id="fullName-error">Please enter your full name (letters only)</div>
     </div>
 
     <div class="form-group">
       <label for="phoneNumber">Phone Number (M-Pesa)</label>
       <input type="tel" id="phoneNumber" name="phoneNumber" required pattern="[0-9]{10}" 
-             title="Please enter a valid 10-digit phone number">
+             title="Please enter a valid 10-digit phone number" placeholder="Enter your M-Pesa phone number">
       <div class="error-message" id="phoneNumber-error">Please enter a valid 10-digit phone number</div>
+    </div>    
+
+    <div class="form-group">
+      <label for="email">Email (Optional)</label>
+      <input type="email" id="email" name="email" placeholder="Your email (optional)">
+      <div class="error-message" id="email-error">Please enter a valid email address</div>
     </div>
 
     <div class="form-group">
       <label for="amount">Amount to Borrow (KES)</label>
-      <input type="number" id="amount" name="amount" required min="1000" max="300000" 
+      <input type="number" id="amount" name="amount" required min="1000" max="300000"
+             placeholder="Enter amount between 1,000 - 300,000 KES"
              title="Loan amount must be between KES 1000 and KES 300,000">
-      <div class="error-message" id="amount-error">Loan amount must be between KES 500 and KES 50,000</div>
+      <div class="error-message" id="amount-error">Loan amount must be between KES 1,000 and KES 300,000</div>
     </div>
 
     <div class="form-group">
       <label for="guarantorName">Guarantor Name</label>
       <input type="text" id="guarantorName" name="guarantorName" required pattern="[A-Za-z ]{3,}" 
-             title="Please enter guarantor's full name (letters only)">
-      <div class="error-message" id="guarantorName-error">Please enter guarantor's full name (letters only)</div>
+             title="Please enter your guarantor's full name (letters only)" placeholder="Enter guarantor's full name">
+      <div class="error-message" id="guarantorName-error">Please enter your guarantor's full name (letters only)
     </div>
-
-    <div class="form-group">
-      <label for="guarantorPhone">Guarantor Phone Number</label>
-      <input type="tel" id="guarantorPhone" name="guarantorPhone" required pattern="[0-9]{10}" 
-             title="Please enter a valid 10-digit phone number">
-      <div class="error-message" id="guarantorPhone-error">Please enter a valid 10-digit phone number</div>
-    </div>
-
+    
     <div class="form-group">
       <label for="guarantorId">Guarantor ID Number</label>
       <input type="text" id="guarantorId" name="guarantorId" required pattern="[0-9]{6,8}" 
-             title="Please enter a valid ID number (6-8 digits)">
-      <div class="error-message" id="guarantorId-error">Please enter a valid ID number (6-8 digits)</div>
-    </div>
+             title="Please enter a valid ID number (6-8 digits)" placeholder="Enter guarantor's ID number">
+      <div class="error-message" id="guarantorId-error">Please enter a valid ID number (6-8 digits)</div>    
+
+      <div class="form-group">
+        <label for="guarantorPhone">Guarantor Phone Number</label>
+        <input type="tel" id="guarantorPhone" name="guarantorPhone" required pattern="[0-9]{10}" 
+               title="Please enter a valid 10-digit phone number" placeholder="Enter guarantor's phone number">
+        <div class="error-message" id="guarantorPhone-error">Please enter a valid 10-digit phone number</div>
+      </div>   
 
     <!-- Signature Pad -->
     <div class="signature-container">
@@ -379,6 +385,10 @@
     validateField(this, 'phoneNumber-error', validatePhone);
   });
 
+  document.getElementById('email').addEventListener('blur', function() {
+    validateField(this, 'email-error', (value) => value === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
+  });
+
   document.getElementById('amount').addEventListener('blur', function() {
     validateField(this, 'amount-error', validateAmount);
   });
@@ -387,12 +397,12 @@
     validateField(this, 'guarantorName-error', validateName);
   });
 
-  document.getElementById('guarantorPhone').addEventListener('blur', function() {
-    validateField(this, 'guarantorPhone-error', validatePhone);
-  });
-
   document.getElementById('guarantorId').addEventListener('blur', function() {
     validateField(this, 'guarantorId-error', validateIdNumber);
+  });
+
+  document.getElementById('guarantorPhone').addEventListener('blur', function() {
+    validateField(this, 'guarantorPhone-error', validatePhone);
   });
 
   // Form Submit
@@ -403,11 +413,12 @@
     const isCustomerIdValid = validateField(document.getElementById('customerId'), 'customerId-error', validateCustomerId);
     const isFullNameValid = validateField(document.getElementById('fullName'), 'fullName-error', validateName);
     const isPhoneValid = validateField(document.getElementById('phoneNumber'), 'phoneNumber-error', validatePhone);
+    const isEmailValid = validateField(document.getElementById('email'), 'email-error', (value) => value === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
     const isAmountValid = validateField(document.getElementById('amount'), 'amount-error', validateAmount);
     const isGuarantorNameValid = validateField(document.getElementById('guarantorName'), 'guarantorName-error', validateName);
-    const isGuarantorPhoneValid = validateField(document.getElementById('guarantorPhone'), 'guarantorPhone-error', validatePhone);
     const isGuarantorIdValid = validateField(document.getElementById('guarantorId'), 'guarantorId-error', validateIdNumber);
-    
+    const isGuarantorPhoneValid = validateField(document.getElementById('guarantorPhone'), 'guarantorPhone-error', validatePhone);
+
     // Validate signature
     const signatureError = document.getElementById('signature-error');
     if (signaturePad.isEmpty()) {
@@ -436,10 +447,11 @@
       customerId: document.getElementById('customerId').value,
       fullName: document.getElementById('fullName').value,
       phoneNumber: document.getElementById('phoneNumber').value,
+      email: document.getElementById('email').value,
       amount: document.getElementById('amount').value,
       guarantorName: document.getElementById('guarantorName').value,
-      guarantorPhone: document.getElementById('guarantorPhone').value,
       guarantorId: document.getElementById('guarantorId').value,
+      guarantorPhone: document.getElementById('guarantorPhone').value,
       signature: signaturePad.toDataURL()
     };
     
