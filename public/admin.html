@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fonte Lenders - Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cormorant+Garamond:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --gold: #FFD700;
+            --dark-gold: #D4AF37;
+            --dark-bg: #121212;
+            --darker-bg: rgba(10, 10, 10, 0.95);
+            --text: #e0e0e0;
+            --green: #4CAF50;
+            --red: #f44336;
+            --blue: #2196F3;
+        }
+
+        body {
+            background: 
+                radial-gradient(circle at 20% 30%, var(--dark-bg) 0%, #000000 100%),
+                url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000') no-repeat center center fixed;
+            background-size: cover;
+            background-blend-mode: multiply;
+            font-family: 'Cormorant Garamond', serif;
+            color: var(--text);
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            line-height: 1.8;
+        }
+
+        .luxury-frame {
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 50px;
+            background: var(--darker-bg);
+            width: 85%;
+            max-width: 900px;
+            box-shadow: 
+                0 0 30px rgba(255, 215, 0, 0.2),
+                0 0 60px rgba(0, 0, 0, 0.5);
+            position: relative;
+            margin: 40px 0;
+            backdrop-filter: blur(5px);
+        }
+
+        .frame-corner {
+            position: absolute;
+            width: 35px;
+            height: 35px;
+            border: 2px solid var(--gold);
+            opacity: 0.7;
+        }
+        .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+        .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+        .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+        h1, h2, h3, h4 {
+            color: var(--gold);
+            font-family: 'Cinzel Decorative', serif;
+            text-align: center;
+            letter-spacing: 1px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+        }
+
+        .logo-header {
+            margin-bottom: 40px;
+            border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+            padding-bottom: 25px;
+            position: relative;
+        }
+
+        .luxury-btn {
+            background: linear-gradient(135deg, var(--gold), var(--dark-gold));
+            color: #000;
+            border: none;
+            padding: 16px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.3s;
+            cursor: pointer;
+            font-family: 'Cinzel Decorative';
+        }
+
+        .luxury-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4);
+        }
+
+        .admin-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .admin-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            padding: 25px;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .admin-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('https://www.transparenttextures.com/patterns/dark-leather.png');
+            opacity: 0.1;
+            z-index: -1;
+        }
+
+        .admin-card:hover {
+            border-color: var(--gold);
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.2);
+        }
+
+        .admin-card h3 {
+            border-bottom: 1px solid rgba(255, 215, 0, 0.3);
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+
+        .login-form {
+            text-align: center;
+            padding: 30px;
+        }
+
+        .login-form input {
+            width: 100%;
+            padding: 14px;
+            margin: 10px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            color: white;
+            font-family: 'Cormorant Garamond';
+            font-size: 16px;
+        }
+
+        .error-message {
+            color: var(--red);
+            margin: 15px 0;
+            font-weight: bold;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Customer Management Styles */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--gold);
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            color: white;
+            font-family: 'Cormorant Garamond';
+        }
+
+        #customerDetails {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            border-radius: 4px;
+        }
+
+        #customerDetails p {
+            margin: 10px 0;
+        }
+
+        #customerDetails strong {
+            color: var(--gold);
+        }
+
+        /* Loading spinner */
+        .spinner {
+            border: 4px solid rgba(255, 215, 0, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid var(--gold);
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Loan table styles */
+        .loan-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .loan-table th, .loan-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+        }
+
+        .loan-table th {
+            color: var(--gold);
+            font-weight: 600;
+        }
+
+        .loan-table tr:hover {
+            background-color: rgba(255, 215, 0, 0.05);
+        }
+
+        .status-pending {
+            color: #FFA500;
+        }
+
+        .status-approved {
+            color: var(--green);
+        }
+
+        .status-rejected {
+            color: var(--red);
+        }
+
+        .status-active {
+            color: var(--gold);
+        }
+
+        .status-completed {
+            color: var(--blue);
+        }
+
+        .action-btn {
+            background: none;
+            border: 1px solid var(--gold);
+            color: var(--gold);
+            padding: 5px 10px;
+            cursor: pointer;
+            margin-right: 5px;
+            transition: all 0.3s;
+        }
+
+        .action-btn:hover {
+            background: rgba(255, 215, 0, 0.1);
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: var(--darker-bg);
+            padding: 30px;
+            border: 1px solid var(--gold);
+            width: 80%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            color: var(--gold);
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        /* Dashboard metrics */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .metric-card {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 215, 0, 0.1);
+            padding: 15px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--gold);
+            margin: 10px 0;
+        }
+
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        /* Bulk operations */
+        .bulk-actions {
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px dashed rgba(255, 215, 0, 0.3);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .luxury-frame {
+                padding: 30px;
+                width: 95%;
+            }
+            
+            .admin-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Container -->
+    <div class="luxury-frame" id="login-container">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <h1>FONTE LENDERS</h1>
+            <h2>Administration Portal</h2>
+        </div>
+        
+        <div class="login-form">
+            <input type="text" id="username-input" placeholder="Admin Username">
+            <input type="password" id="password-input" placeholder="Admin Password">
+            <div id="error-message" class="error-message hidden">Invalid credentials</div>
+            <button class="luxury-btn" onclick="checkPassword()" style="width: 100%; margin-top: 15px;">LOGIN</button>
+        </div>
+    </div>
+
+    <!-- Admin Content Container -->
+    <div class="luxury-frame hidden" id="admin-content">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <h1>FONTE LENDERS</h1>
+            <h2>Administration Portal</h2>
+            <p id="admin-username" style="text-align: center; margin-top: 10px;"></p>
+        </div>
+        
+        <!-- Dashboard Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-value" id="total-customers">0</div>
+                <div class="metric-label">Total Customers</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="total-loans">KES 0</div>
+                <div class="metric-label">Active Loans</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="total-pending">0</div>
+                <div class="metric-label">Pending Applications</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="total-overdue">0</div>
+                <div class="metric-label">Overdue Loans</div>
+            </div>
+        </div>
+        
+        <!-- Bulk Operations -->
+        <div class="bulk-actions">
+            <h3>Bulk Operations</h3>
+            <div class="form-group">
+                <label for="bulkLimitFile">Upload CSV for Bulk Limit Updates</label>
+                <input type="file" id="bulkLimitFile" accept=".csv">
+                <button class="luxury-btn" onclick="processBulkLimits()" style="margin-top: 10px;">PROCESS BULK UPDATE</button>
+                <div id="bulkUpdateResult" style="margin-top: 10px;"></div>
+            </div>
+        </div>
+        
+        <div class="admin-grid" id="admin-grid">
+            <div class="admin-card">
+                <h3>Loan Applications</h3>
+                <p id="pending-loans-count">Loading...</p>
+                <button class="luxury-btn" onclick="showLoans('pending')" style="width: 100%; margin-top: 15px;">VIEW</button>
+            </div>
+            
+            <div class="admin-card">
+                <h3>Active Loans</h3>
+                <p id="active-loans-count">Loading...</p>
+                <button class="luxury-btn" onclick="showLoans('active')" style="width: 100%; margin-top: 15px;">VIEW</button>
+            </div>
+            
+            <div class="admin-card">
+                <h3>Defaulters</h3>
+                <p id="overdue-loans-count">Loading...</p>
+                <button class="luxury-btn" onclick="showLoans('overdue')" style="width: 100%; margin-top: 15px;">VIEW</button>
+            </div>
+
+            <div class="admin-card">
+                <h3>Completed Loans</h3>
+                <p id="completed-loans-count">Loading...</p>
+                <button class="luxury-btn" onclick="showLoans('completed')" style="width: 100%; margin-top: 15px;">VIEW</button>
+            </div>
+
+            <!-- Customer Management Card -->
+            <div class="admin-card">
+                <h3>Customer Management</h3>
+                <div class="form-group">
+                    <input type="text" id="searchCustomer" placeholder="Search by ID, Name or Phone">
+                    <button class="luxury-btn" onclick="searchCustomer()" style="width: 100%; margin-top: 10px;">SEARCH</button>
+                </div>
+                <div id="customerDetails" style="display:none;">
+                    <p><strong>Name:</strong> <span id="custName"></span></p>
+                    <p><strong>Phone:</strong> <span id="custPhone"></span></p>
+                    <p><strong>ID Number:</strong> <span id="custIdNumber"></span></p>
+                    <p><strong>Current Limit:</strong> KES <span id="custLimit"></span></p>
+                    <p><strong>Credit Score:</strong> <span id="custCreditScore"></span></p>
+                    <div class="form-group">
+                        <label for="newLimit">New Loan Limit (KES)</label>
+                        <input type="number" id="newLimit" placeholder="Enter new limit">
+                    </div>
+                    <button class="luxury-btn" onclick="updateLimit()" style="width: 100%;">UPDATE LIMIT</button>
+                    <div id="limitUpdateMessage" style="margin-top: 10px; display: none;"></div>
+                </div>
+            </div>
+
+            <!-- Reports Card -->
+            <div class="admin-card">
+                <h3>Reports</h3>
+                <div class="form-group">
+                    <label for="reportType">Report Type</label>
+                    <select id="reportType">
+                        <option value="daily">Daily Summary</option>
+                        <option value="weekly">Weekly Summary</option>
+                        <option value="monthly">Monthly Summary</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                </div>
+                <div id="customDateRange" style="display: none;">
+                    <div class="form-group">
+                        <label for="startDate">Start Date</label>
+                        <input type="date" id="startDate">
+                    </div>
+                    <div class="form-group">
+                        <label for="endDate">End Date</label>
+                        <input type="date" id="endDate">
+                    </div>
+                </div>
+                <button class="luxury-btn" onclick="generateReport()" style="width: 100%; margin-top: 10px;">GENERATE REPORT</button>
+            </div>
+        </div>
+
+        <!-- Loans Section -->
+        <div id="loans-section" class="hidden" style="margin-top: 30px;">
+            <h3 id="loans-section-title">Loan Applications</h3>
+            <div id="loans-table-container">
+                <table class="loan-table">
+                    <thead>
+                        <tr>
+                            <th>Customer</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th>Due Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="loans-table-body">
+                        <!-- Loans will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+            <button class="luxury-btn" onclick="hideLoans()" style="margin-top: 20px;">BACK TO DASHBOARD</button>
+        </div>
+
+        <!-- Loan Details Modal -->
+        <div id="loanDetailsModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal" onclick="closeModal('loanDetailsModal')">&times;</span>
+                <h3 id="loanDetailsTitle">Loan Details</h3>
+                <div id="loanDetailsContent">
+                    <!-- Loan details will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Approval Terms Modal -->
+        <div id="approvalTermsModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal" onclick="closeModal('approvalTermsModal')">&times;</span>
+                <h3>Set Loan Approval Terms</h3>
+                <div class="form-group">
+                    <label for="interestRate">Interest Rate (%)</label>
+                    <input type="number" id="interestRate" step="0.1" min="1" max="30" value="10">
+                </div>
+                <div class="form-group">
+                    <label for="repaymentPeriod">Repayment Period (days)</label>
+                    <input type="number" id="repaymentPeriod" min="7" max="365" value="30">
+                </div>
+                <div class="form-group">
+                    <label for="adminNotes">Admin Notes</label>
+                    <textarea id="adminNotes" rows="3"></textarea>
+                </div>
+                <button class="luxury-btn" onclick="confirmLoanApproval()">CONFIRM APPROVAL</button>
+            </div>
+        </div>
+
+        <!-- Report Modal -->
+        <div id="reportModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal" onclick="closeModal('reportModal')">&times;</span>
+                <h3 id="reportModalTitle">Report</h3>
+                <div id="reportContent">
+                    <!-- Report content will be loaded here -->
+                </div>
+                <button class="luxury-btn" onclick="exportReport()" style="margin-top: 20px;">EXPORT TO CSV</button>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px;">
+            <button class="luxury-btn" onclick="logout()" style="background: linear-gradient(135deg, var(--red), #c62828) !important; padding: 15px 30px;">LOGOUT</button>
+        </div>
+    </div>
+
+<script>
+    // ==================== GLOBAL VARIABLES ====================
+    const API_BASE_URL = 'http://localhost:3000';
+    let currentAdmin = null;
+    let currentLoanId = null;
+
+    // ==================== INITIALIZATION ====================
+    document.addEventListener('DOMContentLoaded', async () => {
+        await checkAuthStatus();
+        setupEventListeners();
+    });
+
+    // ==================== AUTHENTICATION FUNCTIONS ====================
+    async function checkAuthStatus() {
+        const token = localStorage.getItem("adminToken");
+        if (!token) return;
+
+        try {
+            const isValid = await validateToken(token);
+            if (isValid) {
+                currentAdmin = JSON.parse(localStorage.getItem("adminData"));
+                showAdminContent();
+                await loadAdminData();
+            } else {
+                logout();
+            }
+        } catch (error) {
+            console.error('Auth check error:', error);
+            logout();
+        }
+    }
+
+    async function validateToken(token) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/validate-token`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) return false;
+            
+            const data = await response.json();
+            return data.success === true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function checkPassword() {
+        const username = document.getElementById("username-input").value.trim();
+        const password = document.getElementById("password-input").value;
+        adminLogin(username, password);
+    }
+
+    async function adminLogin(username, password) {
+        try {
+            showLoading('login');
+            
+            const response = await fetch(`${API_BASE_URL}/api/admin/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                // Store authentication data
+                localStorage.setItem("adminToken", data.token);
+                localStorage.setItem("adminData", JSON.stringify(data.admin));
+                currentAdmin = data.admin;
+                
+                // Update UI
+                showAdminContent();
+                await loadAdminData();
+                return true;
+            } else {
+                showError(data.error || 'Invalid credentials', 'login');
+                return false;
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            showError('Login failed. Please try again.', 'login');
+            return false;
+        } finally {
+            hideLoading('login');
+        }
+    }
+
+    function logout() {
+        // Clear authentication data
+        localStorage.removeItem("adminToken");
+        localStorage.removeItem("adminData");
+        currentAdmin = null;
+        
+        // Reset form fields
+        document.getElementById("username-input").value = "";
+        document.getElementById("password-input").value = "";
+        
+        // Update UI
+        showLoginContent();
+    }
+
+    // ==================== API CLIENT ====================
+    async function apiClient(endpoint, method = 'GET', body = null) {
+        const token = localStorage.getItem("adminToken");
+        if (!token) {
+            logout();
+            throw new Error('Authentication required');
+        }
+        
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+        
+        const config = {
+            method,
+            headers
+        };
+        
+        if (body) {
+            config.body = JSON.stringify(body);
+        }
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+            
+            if (response.status === 401) {
+                logout();
+                throw new Error('Session expired. Please login again.');
+            }
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `Request failed with status ${response.status}`);
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('API request failed:', error);
+            throw error;
+        }
+    }
+
+    // ==================== DASHBOARD FUNCTIONS ====================
+    async function loadAdminData() {
+        try {
+            showLoading('dashboard');
+            
+            const [metrics, loans, customers] = await Promise.all([
+                apiClient('/api/admin/metrics'),
+                apiClient('/api/admin/loans'),
+                apiClient('/api/admin/customers')
+            ]);
+            
+            updateDashboardMetrics(metrics.data);
+            updateLoanCounts(loans.data);
+            
+            // Display admin username
+            if (currentAdmin) {
+                document.getElementById('admin-username').textContent = `Logged in as: ${currentAdmin.username}`;
+            }
+            
+        } catch (error) {
+            console.error('Failed to load admin data:', error);
+            showError('Failed to load dashboard data. Please try again.', 'dashboard');
+        } finally {
+            hideLoading('dashboard');
+        }
+    }
+
+    function updateDashboardMetrics(metrics) {
+        if (!metrics) return;
+        
+        document.getElementById('total-customers').textContent = metrics.totalCustomers || 0;
+        document.getElementById('total-loans').textContent = `KES ${(metrics.totalLoanAmount || 0).toLocaleString()}`;
+        document.getElementById('total-pending').textContent = metrics.pendingApplications || 0;
+        document.getElementById('total-overdue').textContent = metrics.overdueLoans || 0;
+    }
+
+    function updateLoanCounts(loans) {
+        if (!loans) return;
+        
+        // Update loan counts
+        const pendingLoans = loans.filter(loan => loan.status === 'pending').length;
+        document.getElementById('pending-loans-count').textContent = 
+            `${pendingLoans} pending ${pendingLoans === 1 ? 'application' : 'applications'}`;
+        
+        const activeLoans = loans.filter(loan => loan.status === 'active').length;
+        document.getElementById('active-loans-count').textContent = 
+            `${activeLoans} active ${activeLoans === 1 ? 'loan' : 'loans'}`;
+        
+        // Calculate overdue loans
+        const overdueLoans = loans.filter(loan => 
+            loan.status === 'active' && 
+            new Date(loan.dueDate) < new Date()
+        ).length;
+        
+        document.getElementById('overdue-loans-count').textContent = 
+            `${overdueLoans} ${overdueLoans === 1 ? 'account' : 'accounts'} overdue`;
+        
+        const completedLoans = loans.filter(loan => loan.status === 'completed').length;
+        document.getElementById('completed-loans-count').textContent = 
+            `${completedLoans} ${completedLoans === 1 ? 'loan' : 'loans'} completed`;
+    }
+
+    // ==================== CUSTOMER MANAGEMENT ====================
+    async function searchCustomer() {
+        const query = document.getElementById('searchCustomer').value.trim();
+        if (!query) {
+            showError('Please enter search criteria', 'customer');
+            return;
+        }
+        
+        try {
+            showLoading('customer');
+            const response = await apiClient(`/api/admin/customers?search=${encodeURIComponent(query)}`);
+            
+            if (response.data && response.data.length > 0) {
+                displayCustomerDetails(response.data[0]);
+            } else {
+                document.getElementById('customerDetails').innerHTML = '<p>No customer found matching your search</p>';
+                document.getElementById('customerDetails').style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Customer search failed:', error);
+            showError('Failed to search for customer. Please try again.', 'customer');
+        } finally {
+            hideLoading('customer');
+        }
+    }
+
+    function displayCustomerDetails(customer) {
+        const detailsDiv = document.getElementById('customerDetails');
+        if (!customer) {
+            detailsDiv.innerHTML = '<p>Customer not found</p>';
+            return;
+        }
+        
+        detailsDiv.innerHTML = `
+            <p><strong>Name:</strong> ${customer.fullName || 'N/A'}</p>
+            <p><strong>Phone:</strong> ${customer.phoneNumber || 'N/A'}</p>
+            <p><strong>ID Number:</strong> ${customer.customerId || 'N/A'}</p>
+            <p><strong>Current Limit:</strong> KES ${customer.maxLoanLimit?.toLocaleString() || '0'}</p>
+            <p><strong>Credit Score:</strong> ${customer.creditScore || 'N/A'}</p>
+            <div class="form-group">
+                <label for="newLimit">New Loan Limit (KES)</label>
+                <input type="number" id="newLimit" 
+                       value="${customer.maxLoanLimit || ''}" 
+                       data-user-id="${customer._id}">
+            </div>
+            <button class="luxury-btn" onclick="updateLimit()">UPDATE LIMIT</button>
+            <div id="limitUpdateMessage"></div>
+        `;
+        detailsDiv.style.display = 'block';
+    }
+
+    async function updateLimit() {
+        const newLimitInput = document.getElementById('newLimit');
+        const newLimit = parseInt(newLimitInput.value);
+        const userId = newLimitInput.dataset.userId;
+        
+        if (isNaN(newLimit)) {
+            showError('Please enter a valid amount', 'limitUpdateMessage');
+            return;
+        }
+        
+        try {
+            showLoading('limitUpdateMessage');
+            const response = await apiClient(
+                '/api/admin/customers/limit',
+                'PATCH',
+                { userId, newLimit }
+            );
+            
+            if (response.success) {
+                showSuccess(response.message || 'Limit updated successfully', 'limitUpdateMessage');
+                // Refresh customer details
+                searchCustomer();
+            }
+        } catch (error) {
+            console.error('Limit update failed:', error);
+            showError(error.message || 'Failed to update limit', 'limitUpdateMessage');
+        } finally {
+            hideLoading('limitUpdateMessage');
+        }
+    }
+
+    // ==================== BULK OPERATIONS ====================
+    async function processBulkLimits() {
+        const fileInput = document.getElementById('bulkLimitFile');
+        const file = fileInput.files[0];
+        
+        if (!file) {
+            showError('Please select a CSV file first', 'bulkUpdateResult');
+            return;
+        }
+        
+        try {
+            showLoading('bulkUpdateResult');
+            
+            // Parse CSV file
+            const csvData = await readCSVFile(file);
+            if (!csvData || csvData.length === 0) {
+                throw new Error('CSV file is empty or invalid');
+            }
+            
+            // Validate CSV structure
+            const requiredFields = ['customerId', 'newLimit'];
+            const firstRow = csvData[0];
+            const isValid = requiredFields.every(field => field in firstRow);
+            
+            if (!isValid) {
+                throw new Error('CSV must contain customerId and newLimit columns');
+            }
+            
+            // Process updates
+            const results = await Promise.all(
+                csvData.map(async (row) => {
+                    try {
+                        const response = await apiClient(
+                            '/api/admin/customers/bulk-limit',
+                            'PATCH',
+                            {
+                                customerId: row.customerId,
+                                newLimit: parseFloat(row.newLimit)
+                            }
+                        );
+                        return {
+                            customerId: row.customerId,
+                            success: true,
+                            message: response.message || 'Limit updated'
+                        };
+                    } catch (error) {
+                        return {
+                            customerId: row.customerId,
+                            success: false,
+                            message: error.message || 'Update failed'
+                        };
+                    }
+                })
+            );
+            
+            // Display results
+            const successCount = results.filter(r => r.success).length;
+            const errorCount = results.length - successCount;
+            
+            let resultHTML = `
+                <h4>Bulk Update Results</h4>
+                <p>Successfully updated: ${successCount}</p>
+                <p>Failed updates: ${errorCount}</p>
+            `;
+            
+            if (errorCount > 0) {
+                resultHTML += `
+                    <h5>Failed Updates:</h5>
+                    <ul>
+                        ${results.filter(r => !r.success).map(r => 
+                            `<li>Customer ID: ${r.customerId} - ${r.message}</li>`
+                        ).join('')}
+                    </ul>
+                `;
+            }
+            
+            document.getElementById('bulkUpdateResult').innerHTML = resultHTML;
+            
+        } catch (error) {
+            console.error('Bulk update error:', error);
+            showError(error.message || 'Failed to process bulk update', 'bulkUpdateResult');
+        } finally {
+            hideLoading('bulkUpdateResult');
+            fileInput.value = ''; // Clear file input
+        }
+    }
+
+    function readCSVFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            
+            reader.onload = (event) => {
+                try {
+                    const csvData = event.target.result;
+                    const lines = csvData.split('\n');
+                    const headers = lines[0].split(',').map(h => h.trim());
+                    const result = [];
+                    
+                    for (let i = 1; i < lines.length; i++) {
+                        if (!lines[i].trim()) continue;
+                        
+                        const obj = {};
+                        const currentLine = lines[i].split(',');
+                        
+                        for (let j = 0; j < headers.length; j++) {
+                            obj[headers[j]] = currentLine[j] ? currentLine[j].trim() : '';
+                        }
+                        
+                        result.push(obj);
+                    }
+                    
+                    resolve(result);
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            
+            reader.onerror = () => {
+                reject(new Error('Error reading CSV file'));
+            };
+            
+            reader.readAsText(file);
+        });
+    }
+
+    // ==================== LOAN MANAGEMENT ====================
+    async function showLoans(status) {
+        try {
+            showLoading('loans');
+            
+            const response = await apiClient('/api/admin/loans');
+            const loans = response.data || [];
+            
+            const filteredLoans = filterLoansByStatus(loans, status);
+            displayLoans(filteredLoans, status);
+            
+        } catch (error) {
+            console.error('Failed to load loans:', error);
+            showError('Failed to load loans. Please try again.', 'loans');
+        } finally {
+            hideLoading('loans');
+        }
+    }
+
+    function filterLoansByStatus(loans, status) {
+        switch (status) {
+            case 'pending':
+                return loans.filter(loan => loan.status === 'pending');
+            case 'active':
+                return loans.filter(loan => loan.status === 'active');
+            case 'overdue':
+                return loans.filter(loan => 
+                    loan.status === 'active' && 
+                    new Date(loan.dueDate) < new Date()
+                );
+            case 'completed':
+                return loans.filter(loan => loan.status === 'completed');
+            default:
+                return loans;
+        }
+    }
+
+    function displayLoans(loans, status) {
+        const tableBody = document.getElementById('loans-table-body');
+        const titleMap = {
+            pending: 'Pending Loan Applications',
+            active: 'Active Loans',
+            overdue: 'Overdue Loans',
+            completed: 'Completed Loans'
+        };
+        
+        document.getElementById('loans-section-title').textContent = titleMap[status] || 'Loan Applications';
+        
+        if (loans.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="6">No loans found</td></tr>';
+        } else {
+            tableBody.innerHTML = loans.map(loan => `
+                <tr>
+                    <td>${loan.userId?.fullName || loan.fullName || 'Unknown'}<br>
+                        <small>${loan.userId?.phoneNumber || loan.phoneNumber || 'N/A'}</small>
+                    </td>
+                    <td>KES ${loan.amount?.toLocaleString() || '0'}</td>
+                    <td class="status-${loan.status}">${loan.status?.toUpperCase() || 'UNKNOWN'}</td>
+                    <td>${formatDate(loan.createdAt)}</td>
+                    <td>${loan.dueDate ? formatDate(loan.dueDate) : 'N/A'}</td>
+                    <td>
+                        ${loan.status === 'pending' ? 
+                            `<button class="action-btn" onclick="showApprovalTerms('${loan._id}')">APPROVE</button>
+                             <button class="action-btn" onclick="processLoan('${loan._id}', 'reject')">REJECT</button>` : 
+                            ''}
+                        <button class="action-btn" onclick="showLoanDetails('${loan._id}')">DETAILS</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        document.getElementById('admin-grid').classList.add('hidden');
+        document.getElementById('loans-section').classList.remove('hidden');
+    }
+
+    function showApprovalTerms(loanId) {
+        currentLoanId = loanId;
+        document.getElementById('approvalTermsModal').style.display = 'flex';
+    }
+
+    async function confirmLoanApproval() {
+        const interestRate = parseFloat(document.getElementById('interestRate').value);
+        const repaymentPeriod = parseInt(document.getElementById('repaymentPeriod').value);
+        const adminNotes = document.getElementById('adminNotes').value;
+        
+        if (isNaN(newLimit)) {  // Removed extra parenthesis
+            showError('Please enter a valid amount', 'limitUpdateMessage');
+            return;
+        }
+        
+        if (isNaN(repaymentPeriod)) {
+            showError('Please enter a valid repayment period', 'approvalTermsModal');
+            return;
+        }
+        
+        try {
+            showLoading('approvalTermsModal');
+            
+            const response = await apiClient(
+                `/api/admin/loans/${currentLoanId}/approve`,
+                'PATCH',
+                { interestRate, repaymentPeriod, adminNotes }
+            );
+            
+            if (response.success) {
+                showSuccess('Loan approved successfully');
+                closeModal('approvalTermsModal');
+                showLoans('pending'); // Refresh the list
+            }
+        } catch (error) {
+            console.error('Loan approval error:', error);
+            showError(error.message || 'Failed to approve loan', 'approvalTermsModal');
+        } finally {
+            hideLoading('approvalTermsModal');
+        }
+    }
+
+    async function processLoan(loanId, action) {
+        if (action === 'reject') {
+            const reason = prompt('Rejection reason:');
+            if (!reason) return;
+            
+            try {
+                showLoading('loans');
+                
+                const response = await apiClient(
+                    `/api/admin/loans/${loanId}/reject`,
+                    'PATCH',
+                    { reason }
+                );
+                
+                if (response.success) {
+                    showSuccess('Loan rejected successfully');
+                    showLoans('pending'); // Refresh the list
+                }
+            } catch (error) {
+                console.error('Loan rejection error:', error);
+                showError(error.message || 'Failed to reject loan');
+            } finally {
+                hideLoading('loans');
+            }
+        }
+    }
+
+    function hideLoans() {
+        document.getElementById('admin-grid').classList.remove('hidden');
+        document.getElementById('loans-section').classList.add('hidden');
+    }
+
+    async function showLoanDetails(loanId) {
+        try {
+            showLoading('loanDetails');
+            
+            const response = await apiClient(`/api/admin/loans/${loanId}`);
+            displayLoanDetails(response.data);
+            
+        } catch (error) {
+            console.error('Failed to load loan details:', error);
+            showError('Failed to load loan details', 'loanDetails');
+        } finally {
+            hideLoading('loanDetails');
+        }
+    }
+
+    function displayLoanDetails(loan) {
+        const content = document.getElementById('loanDetailsContent');
+        if (!loan) {
+            content.innerHTML = '<p>Loan details not found</p>';
+            return;
+        }
+        
+        content.innerHTML = `
+            <p><strong>Customer:</strong> ${loan.userId?.fullName || loan.fullName || 'Unknown'}</p>
+            <p><strong>Phone:</strong> ${loan.userId?.phoneNumber || loan.phoneNumber || 'N/A'}</p>
+            <p><strong>ID Number:</strong> ${loan.userId?.customerId || loan.customerId || 'N/A'}</p>
+            <p><strong>Amount:</strong> KES ${loan.amount?.toLocaleString() || '0'}</p>
+            <p><strong>Status:</strong> <span class="status-${loan.status}">${loan.status?.toUpperCase() || 'UNKNOWN'}</span></p>
+            <p><strong>Date Applied:</strong> ${formatDate(loan.createdAt)}</p>
+            ${loan.approvedAt ? `<p><strong>Approved On:</strong> ${formatDate(loan.approvedAt)}</p>` : ''}
+            ${loan.dueDate ? `<p><strong>Due Date:</strong> ${formatDate(loan.dueDate)}</p>` : ''}
+            
+            ${loan.interestRate ? `<p><strong>Interest Rate:</strong> ${loan.interestRate}%</p>` : ''}
+            ${loan.repaymentPeriod ? `<p><strong>Repayment Period:</strong> ${loan.repaymentPeriod} days</p>` : ''}
+            
+            ${loan.guarantorName ? `
+                <h4>Guarantor Details</h4>
+                <p><strong>Name:</strong> ${loan.guarantorName}</p>
+                <p><strong>ID:</strong> ${loan.guarantorId}</p>
+                <p><strong>Phone:</strong> ${loan.guarantorPhone}</p>
+            ` : ''}
+            
+            ${loan.adminNotes ? `<p><strong>Notes:</strong> ${loan.adminNotes}</p>` : ''}
+        `;
+        
+        document.getElementById('loanDetailsModal').style.display = 'flex';
+    }
+
+    // ==================== REPORTING ====================
+    function setupReportTypeListener() {
+        document.getElementById('reportType').addEventListener('change', function() {
+            const customRangeDiv = document.getElementById('customDateRange');
+            customRangeDiv.style.display = this.value === 'custom' ? 'block' : 'none';
+        });
+    }
+
+    async function generateReport() {
+        const reportType = document.getElementById('reportType').value;
+        let startDate, endDate;
+        
+        if (reportType === 'custom') {
+            startDate = document.getElementById('startDate').value;
+            endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                showError('Please select both start and end dates');
+                return;
+            }
+            
+            if (new Date(startDate) > new Date(endDate)) {
+                showError('Start date must be before end date');
+                return;
+            }
+        }
+        
+        try {
+            showLoading('report');
+            
+            let endpoint = '/api/admin/reports';
+            const params = new URLSearchParams();
+            
+            if (reportType !== 'custom') {
+                params.append('period', reportType);
+            } else {
+                params.append('startDate', startDate);
+                params.append('endDate', endDate);
+            }
+            
+            const response = await apiClient(`${endpoint}?${params.toString()}`);
+            displayReport(response.data, reportType);
+            
+        } catch (error) {
+            console.error('Report generation error:', error);
+            showError('Failed to generate report. Please try again.');
+        } finally {
+            hideLoading('report');
+        }
+    }
+
+    function displayReport(data, reportType) {
+        const titleMap = {
+            daily: 'Daily Loan Report',
+            weekly: 'Weekly Loan Report',
+            monthly: 'Monthly Loan Report',
+            custom: 'Custom Date Range Report'
+        };
+        
+        document.getElementById('reportModalTitle').textContent = titleMap[reportType] || 'Loan Report';
+        
+        let reportHTML = `
+            <h4>Summary</h4>
+            <p><strong>Period:</strong> ${data.startDate} to ${data.endDate}</p>
+            <p><strong>Total Loans:</strong> ${data.totalLoans}</p>
+            <p><strong>Total Amount:</strong> KES ${data.totalAmount.toLocaleString()}</p>
+            <p><strong>Approved Loans:</strong> ${data.approvedLoans}</p>
+            <p><strong>Rejected Loans:</strong> ${data.rejectedLoans}</p>
+            <p><strong>Overdue Loans:</strong> ${data.overdueLoans}</p>
+            
+            <h4 style="margin-top: 20px;">Loan Details</h4>
+            <div style="max-height: 300px; overflow-y: auto;">
+                <table class="loan-table">
+                    <thead>
+                        <tr>
+                            <th>Customer</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.loans.map(loan => `
+                            <tr>
+                                <td>${loan.fullName}</td>
+                                <td>KES ${loan.amount.toLocaleString()}</td>
+                                <td class="status-${loan.status}">${loan.status.toUpperCase()}</td>
+                                <td>${formatDate(loan.createdAt)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        document.getElementById('reportContent').innerHTML = reportHTML;
+        document.getElementById('reportModal').style.display = 'flex';
+    }
+
+    function exportReport() {
+        // This would be implemented to export the report data to CSV
+        alert('Export functionality would be implemented here');
+    }
+
+    // ==================== UI FUNCTIONS ====================
+    function showLoginContent() {
+        document.getElementById("login-container").classList.remove("hidden");
+        document.getElementById("admin-content").classList.add("hidden");
+        document.getElementById("error-message").classList.add("hidden");
+    }
+
+    function showAdminContent() {
+        document.getElementById("login-container").classList.add("hidden");
+        document.getElementById("admin-content").classList.remove("hidden");
+    }
+
+    function showLoading(context) {
+        const element = typeof context === 'string' 
+            ? document.getElementById(`${context}-loading`) || document.getElementById(context)
+            : context;
+        
+        if (element) {
+            element.innerHTML = '<div class="spinner"></div>';
+            element.classList.remove('hidden');
+        }
+    }
+
+    function hideLoading(context) {
+        const element = typeof context === 'string' 
+            ? document.getElementById(context)
+            : context;
+        
+        if (element) {
+            element.innerHTML = '';
+        }
+    }
+
+    function showError(message, context = 'global') {
+        const element = document.getElementById(`${context}-error`) || 
+                         document.getElementById('error-message');
+        
+        if (element) {
+            element.textContent = message;
+            element.classList.remove('hidden');
+        }
+    }
+
+    function showSuccess(message, context = 'global') {
+        const element = document.getElementById(`${context}-message`) || 
+                         document.getElementById('success-message');
+        
+        if (element) {
+            element.textContent = message;
+            element.style.color = 'var(--green)';
+            element.classList.remove('hidden');
+            
+            // Auto-hide after 3 seconds
+            setTimeout(() => {
+                element.classList.add('hidden');
+            }, 3000);
+        }
+    }
+
+    function closeModal(modalId) {
+        document.getElementById(modalId).style.display = 'none';
+    }
+
+    // ==================== EVENT HANDLERS ====================
+    function setupEventListeners() {
+        // Login form submission
+        document.getElementById("username-input").addEventListener("keypress", function(e) {
+            if (e.key === 'Enter') checkPassword();
+        });
+        
+        document.getElementById("password-input").addEventListener("keypress", function(e) {
+            if (e.key === 'Enter') checkPassword();
+        });
+
+        // Customer search
+        document.getElementById("searchCustomer").addEventListener("keypress", function(e) {
+            if (e.key === 'Enter') searchCustomer();
+        });
+
+        // Limit update
+        document.getElementById("newLimit").addEventListener("keypress", function(e) {
+            if (e.key === 'Enter') updateLimit();
+        });
+
+        // Report type change
+        document.getElementById("reportType").addEventListener("change", function() {
+            document.getElementById("customDateRange").style.display = 
+                this.value === 'custom' ? 'block' : 'none';
+        });
+    }
+
+    // ==================== UTILITY FUNCTIONS ====================
+    function formatDate(dateString) {
+        if (!dateString) return 'N/A';
+        const date = new Date(dateString);
+        return date.toLocaleDateString();
+    }
+
+    function formatCurrency(amount) {
+        if (isNaN(amount)) return 'KES 0';
+        return `KES ${amount.toLocaleString()}`;
+    }
+</script>
+</body>
+</html>

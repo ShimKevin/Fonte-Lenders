@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fonte Lenders - Loan Application</title>
+  <style>
+    :root {
+      --gold: #FFD700;
+      --dark-bg: #121212;
+      --light-bg: rgba(30, 30, 30, 0.8);
+      --error: #ff6b6b;
+      --success: #4CAF50;
+    }
+
+    body {
+      background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+      font-family: 'Georgia', serif;
+      color: #e0e0e0;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      line-height: 1.6;
+    }
+
+    .frame {
+      border: 1px solid rgba(255, 215, 0, 0.3);
+      padding: 40px;
+      background: rgba(20, 20, 20, 0.8);
+      width: 90%;
+      max-width: 800px;
+      box-shadow: 0 0 40px rgba(255, 215, 0, 0.1);
+      position: relative;
+      margin: 30px 0;
+    }
+
+    .frame-corner {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border: 2px solid var(--gold);
+      opacity: 0.7;
+    }
+
+    .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+    .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+    .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+    .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+    h1, h2, h3 {
+      color: var(--gold);
+      font-family: 'Times New Roman', serif;
+      text-align: center;
+    }
+
+    .logo-header {
+      margin-bottom: 30px;
+      border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+      padding-bottom: 20px;
+    }
+
+    .form-group {
+      margin-bottom: 25px;
+      position: relative;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--gold);
+    }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 12px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255, 215, 0, 0.3);
+      color: white;
+      font-family: 'Georgia';
+      border-radius: 2px;
+      transition: border 0.3s;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--gold);
+    }
+
+    .submit-btn {
+      background: linear-gradient(to right, #FFD700, #D4AF37);
+      color: #121212;
+      border: none;
+      padding: 15px;
+      font-weight: bold;
+      width: 100%;
+      cursor: pointer;
+      margin-top: 20px;
+      transition: all 0.3s;
+    }
+
+    .submit-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+    }
+
+    .submit-btn:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .nav-link {
+      color: var(--gold);
+      text-align: center;
+      display: block;
+      margin-top: 20px;
+      text-decoration: none;
+      border: 1px solid var(--gold);
+      padding: 10px;
+      border-radius: 4px;
+      transition: all 0.3s;
+    }
+
+    .nav-link:hover {
+      background: rgba(255, 215, 0, 0.1);
+    }
+
+    .error-message {
+      color: var(--error);
+      font-size: 0.8rem;
+      margin-top: 5px;
+      display: none;
+    }
+
+    .confirmation {
+      display: none;
+      text-align: center;
+      padding: 20px;
+      background: rgba(0, 100, 0, 0.2);
+      border: 1px solid rgba(0, 255, 0, 0.3);
+      margin-top: 20px;
+      color: var(--success);
+    }
+
+    .signature-container {
+      position: relative;
+      border: 1px solid rgba(255, 215, 0, 0.3);
+      background: rgba(255,255,255,0.05);
+      margin: 20px 0;
+      padding: 10px;
+      border-radius: 4px;
+    }
+
+    #signature-pad {
+      width: 100%;
+      height: 150px;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .signature-actions {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+
+    .signature-btn {
+      background: rgba(255, 215, 0, 0.1);
+      color: var(--gold);
+      border: 1px solid var(--gold);
+      padding: 8px 15px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+
+    .section-header {
+      color: var(--gold);
+      font-family: 'Times New Roman', serif;
+      margin: 30px 0 15px 0;
+      padding-bottom: 5px;
+      border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+    }
+
+    .spinner {
+      display: none;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: var(--gold);
+      animation: spin 1s ease-in-out infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 600px) {
+      .frame { padding: 20px; }
+      input, select, textarea { padding: 10px; font-size: 14px; }
+      #signature-pad { height: 120px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="frame">
+  <div class="frame-corner frame-corner-1"></div>
+  <div class="frame-corner frame-corner-2"></div>
+  <div class="frame-corner frame-corner-3"></div>
+  <div class="frame-corner frame-corner-4"></div>
+  
+  <div class="logo-header">
+    <h1>FONTE LENDERS</h1>
+    <h2>Loan Application</h2>
+  </div>
+
+  <form id="loanForm">
+    <!-- Customer Information Section -->
+    <h3 class="section-header">Customer Information</h3>
+    
+    <div class="form-group">
+      <label for="customerId">National ID/Passport Number</label>
+      <input type="text" id="customerId" name="customerId" placeholder="Enter your national ID or Passport" required 
+             pattern="[A-Za-z0-9]{6,12}" title="ID must be 6-12 alphanumeric characters">
+      <div class="error-message" id="customerId-error">Please enter a valid ID (6-12 alphanumeric characters)</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="fullName">Full Name</label>
+      <input type="text" id="fullName" name="fullName" required pattern="[A-Za-z ]{3,}" 
+             title="Please enter your full name (letters only)" placeholder="Enter your full name">
+      <div class="error-message" id="fullName-error">Please enter your full name (letters only)</div>
+    </div>
+
+    <div class="form-group">
+      <label for="phoneNumber">Phone Number (M-Pesa)</label>
+      <input type="tel" id="phoneNumber" name="phoneNumber" required pattern="[0-9]{10}" 
+             title="Please enter a valid 10-digit phone number" placeholder="Enter your M-Pesa phone number">
+      <div class="error-message" id="phoneNumber-error">Please enter a valid 10-digit phone number</div>
+    </div>    
+
+    <div class="form-group">
+      <label for="email">Email (Optional)</label>
+      <input type="email" id="email" name="email" placeholder="Your email (optional)">
+      <div class="error-message" id="email-error">Please enter a valid email address</div>
+    </div>
+
+    <!-- Loan Details Section -->
+    <h3 class="section-header">Loan Details</h3>
+    
+    <div class="form-group">
+      <label for="amount">Amount to Borrow (KES)</label>
+      <input type="number" id="amount" name="amount" required min="1000" max="300000"
+             placeholder="Enter amount between 1,000 - 300,000 KES"
+             title="Loan amount must be between KES 1000 and KES 300,000">
+      <div class="error-message" id="amount-error">Loan amount must be between KES 1,000 and KES 300,000</div>
+    </div>
+
+    <!-- Guarantor Information Section -->
+    <h3 class="section-header">Guarantor Information</h3>
+    
+    <div class="form-group">
+      <label for="guarantorName">Full Name</label>
+      <input type="text" id="guarantorName" name="guarantorName" required pattern="[A-Za-z ]{3,}" 
+             title="Please enter guarantor's full name (letters only)" placeholder="Enter guarantor's full name">
+      <div class="error-message" id="guarantorName-error">Please enter guarantor's full name (letters only)</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="guarantorId">National ID Number</label>
+      <input type="text" id="guarantorId" name="guarantorId" required pattern="[0-9]{6,8}" 
+             title="Please enter a valid ID number (6-8 digits)" placeholder="Enter guarantor's ID number">
+      <div class="error-message" id="guarantorId-error">Please enter a valid ID number (6-8 digits)</div>
+    </div>    
+
+    <div class="form-group">
+      <label for="guarantorPhone">Phone Number</label>
+      <input type="tel" id="guarantorPhone" name="guarantorPhone" required pattern="[0-9]{10}" 
+             title="Please enter a valid 10-digit phone number" placeholder="Enter guarantor's phone number">
+      <div class="error-message" id="guarantorPhone-error">Please enter a valid 10-digit phone number</div>
+    </div>
+
+    <!-- Signature Section -->
+    <h3 class="section-header">Agreement</h3>
+    
+    <div class="signature-container">
+      <label>Your Signature</label>
+      <canvas id="signature-pad"></canvas>
+      <div class="signature-actions">
+        <button type="button" class="signature-btn" id="clear-signature">Clear Signature</button>
+      </div>
+      <div class="error-message" id="signature-error">Please provide your signature</div>
+    </div>
+
+    <!-- Terms and Conditions -->
+    <div class="form-group">
+      <input type="checkbox" id="terms" name="terms" required>
+      <label for="terms" style="display: inline;">I agree to the <a href="#" style="color: var(--gold);">Terms and Conditions</a></label>
+      <div class="error-message" id="terms-error">You must agree to the terms and conditions</div>
+    </div>
+
+    <!-- Submit Button -->
+    <button type="submit" class="submit-btn" id="submitBtn">
+      <div id="btnText">APPLY NOW</div>
+      <div class="spinner" id="spinner"></div>
+    </button>
+  </form>
+
+  <!-- Confirmation Message -->
+  <div class="confirmation" id="confirmation">
+    <h3>Your application has been received successfully!</h3>
+    <p>We are verifying your information with our partners.</p>
+    <p>You will receive an SMS confirmation shortly.</p>
+    <p>Redirecting to dashboard...</p>
+  </div>
+
+  <a href="dashboard.html" class="nav-link">Back to Dashboard</a>
+</div>
+
+<!-- Signature Pad Script -->
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+<script>
+  // Signature Pad Setup - Improved Version
+  const canvas = document.getElementById('signature-pad');
+  const signaturePad = new SignaturePad(canvas, {
+    penColor: 'rgb(255, 215, 0)',
+    backgroundColor: 'rgb(30, 30, 30)',
+    minWidth: 1.5,
+    maxWidth: 2.5,
+    throttle: 16,
+  });
+
+  // Improved canvas resizing function
+  function resizeCanvas() {
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+    const parent = canvas.parentElement;
+    
+    // Set canvas dimensions to match parent container
+    canvas.width = parent.offsetWidth * ratio;
+    canvas.height = parent.offsetHeight * ratio;
+    canvas.getContext('2d').scale(ratio, ratio);
+    
+    // Redraw any existing signature after resize
+    if (!signaturePad.isEmpty()) {
+      const data = signaturePad.toData();
+      signaturePad.clear();
+      signaturePad.fromData(data);
+    }
+  }
+
+  // Initialize and handle resizing
+  window.addEventListener('resize', resizeCanvas);
+  document.addEventListener('DOMContentLoaded', () => {
+    resizeCanvas();
+  });
+
+  // Clear Signature - Improved
+  document.getElementById('clear-signature').addEventListener('click', () => {
+    signaturePad.clear();
+    document.getElementById('signature-error').style.display = 'none';
+  });
+
+  // Enhanced signature validation
+  function validateSignature() {
+    const signatureError = document.getElementById('signature-error');
+    if (signaturePad.isEmpty()) {
+      signatureError.style.display = 'block';
+      return false;
+    } else {
+      signatureError.style.display = 'none';
+      return true;
+    }
+  }
+
+  // Mobile device support
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+  });
+
+  // Support for pressure-sensitive styluses (iOS/Android)
+  canvas.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 1) { // Only one finger
+      const touch = e.touches[0];
+      const pressure = touch.force || 0.5; // Default to medium pressure if not supported
+      signaturePad.minWidth = 0.5 + (pressure * 2);
+      signaturePad.maxWidth = 1.5 + (pressure * 2);
+    }
+  });
+
+  // Form Validation
+  function validateField(field, errorId, validationFn) {
+    const errorElement = document.getElementById(errorId);
+    const isValid = validationFn(field.value);
+    
+    if (!isValid) {
+      errorElement.style.display = 'block';
+      field.style.borderColor = 'var(--error)';
+      return false;
+    } else {
+      errorElement.style.display = 'none';
+      field.style.borderColor = 'rgba(255, 215, 0, 0.3)';
+      return true;
+    }
+  }
+
+  // Validation functions
+  function validateCustomerId(value) {
+    return /^[A-Za-z0-9]{6,12}$/.test(value);
+  }
+
+  function validateName(value) {
+    return /^[A-Za-z ]{3,}$/.test(value);
+  }
+
+  function validatePhone(value) {
+    return /^[0-9]{10}$/.test(value);
+  }
+
+  function validateEmail(value) {
+    return value === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }
+
+  function validateAmount(value) {
+    const amount = parseInt(value);
+    return !isNaN(amount) && amount >= 1000 && amount <= 300000;
+  }
+
+  function validateIdNumber(value) {
+    return /^[0-9]{6,8}$/.test(value);
+  }
+
+  // Field event listeners for real-time validation
+  document.getElementById('customerId').addEventListener('blur', function() {
+    validateField(this, 'customerId-error', validateCustomerId);
+  });
+
+  document.getElementById('fullName').addEventListener('blur', function() {
+    validateField(this, 'fullName-error', validateName);
+  });
+
+  document.getElementById('phoneNumber').addEventListener('blur', function() {
+    validateField(this, 'phoneNumber-error', validatePhone);
+  });
+
+  document.getElementById('email').addEventListener('blur', function() {
+    validateField(this, 'email-error', validateEmail);
+  });
+
+  document.getElementById('amount').addEventListener('blur', function() {
+    validateField(this, 'amount-error', validateAmount);
+  });
+
+  document.getElementById('guarantorName').addEventListener('blur', function() {
+    validateField(this, 'guarantorName-error', validateName);
+  });
+
+  document.getElementById('guarantorId').addEventListener('blur', function() {
+    validateField(this, 'guarantorId-error', validateIdNumber);
+  });
+
+  document.getElementById('guarantorPhone').addEventListener('blur', function() {
+    validateField(this, 'guarantorPhone-error', validatePhone);
+  });
+
+  document.getElementById('terms').addEventListener('change', function() {
+    const errorElement = document.getElementById('terms-error');
+    errorElement.style.display = this.checked ? 'none' : 'block';
+  });
+
+  // Enhanced Form Submission with Session Management
+  document.getElementById('loanForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    
+    // Validate all fields
+    const isCustomerIdValid = validateField(document.getElementById('customerId'), 'customerId-error', validateCustomerId);
+    const isFullNameValid = validateField(document.getElementById('fullName'), 'fullName-error', validateName);
+    const isPhoneValid = validateField(document.getElementById('phoneNumber'), 'phoneNumber-error', validatePhone);
+    const isEmailValid = validateField(document.getElementById('email'), 'email-error', validateEmail);
+    const isAmountValid = validateField(document.getElementById('amount'), 'amount-error', validateAmount);
+    const isGuarantorNameValid = validateField(document.getElementById('guarantorName'), 'guarantorName-error', validateName);
+    const isGuarantorIdValid = validateField(document.getElementById('guarantorId'), 'guarantorId-error', validateIdNumber);
+    const isGuarantorPhoneValid = validateField(document.getElementById('guarantorPhone'), 'guarantorPhone-error', validatePhone);
+    const isTermsChecked = document.getElementById('terms').checked;
+    const isSignatureValid = validateSignature();
+
+    if (!isCustomerIdValid || !isFullNameValid || !isPhoneValid || !isAmountValid || 
+        !isGuarantorNameValid || !isGuarantorPhoneValid || !isGuarantorIdValid || 
+        !isTermsChecked || !isSignatureValid) {
+      return;
+    }
+    
+    // Show loading state
+    document.getElementById('btnText').textContent = 'Verifying...';
+    document.getElementById('spinner').style.display = 'block';
+    document.getElementById('submitBtn').disabled = true;
+    
+    // Prepare form data
+    const formData = {
+      customerId: document.getElementById('customerId').value,
+      fullName: document.getElementById('fullName').value,
+      phoneNumber: document.getElementById('phoneNumber').value,
+      email: document.getElementById('email').value || null,
+      amount: parseInt(document.getElementById('amount').value),
+      guarantorName: document.getElementById('guarantorName').value,
+      guarantorId: document.getElementById('guarantorId').value,
+      guarantorPhone: document.getElementById('guarantorPhone').value,
+      signature: signaturePad.toDataURL('image/png')
+    };
+
+    try {
+      // First try to submit with current token
+      let response = await submitLoanApplication(formData);
+      
+      // If token expired, try to refresh it
+      if (response.code === 'TOKEN_EXPIRED') {
+        console.log('Token expired, attempting refresh...');
+        const refreshResponse = await refreshToken();
+        
+        if (refreshResponse.success) {
+          // Retry with new token
+          response = await submitLoanApplication(formData);
+        } else {
+          throw new Error('Session expired. Please log in again.');
+        }
+      }
+      
+      if (response.success) {
+        if (response.requiresManualVerification) {
+          showSuccess('Application submitted! Note: Verification services are currently delayed. We will process your application manually.');
+        } else {
+          showSuccess('Your application has been received successfully!');
+        }
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 3000);
+      } else {
+        throw new Error(response.message || 'Submission failed');
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      
+      let errorMessage = error.message || 'There was an error processing your application';
+      
+      if (error.message.includes('Verification')) {
+        errorMessage = 'ID verification failed. Please check your details and try again.';
+      } else if (error.message.includes('limit')) {
+        errorMessage = 'Loan limit issue: ' + error.message;
+      } else if (error.message.includes('network')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      } else if (error.message.includes('expired') || error.message.includes('Unauthorized')) {
+        errorMessage = 'Session expired. Please log in again.';
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('userData');
+        setTimeout(() => { window.location.href = 'login.html'; }, 2000);
+      }
+      
+      showError(errorMessage);
+    } finally {
+      document.getElementById('btnText').textContent = 'APPLY NOW';
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('submitBtn').disabled = false;
+    }
+  });
+
+  // Token Refresh Function
+  async function refreshToken() {
+    try {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (!refreshToken) throw new Error('No refresh token available');
+      
+      const response = await fetch('/api/refresh-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ refreshToken })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        localStorage.setItem('authToken', data.token);
+        localStorage.setItem('refreshToken', data.refreshToken);
+        return { success: true };
+      } else {
+        throw new Error(data.message || 'Token refresh failed');
+      }
+    } catch (error) {
+      console.error('Token refresh error:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  // Enhanced Submit Loan Application Function
+  async function submitLoanApplication(formData) {
+    try {
+      const response = await fetch('/api/submit-loan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify(formData)
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        return {
+          success: false,
+          message: data.message || 'Submission failed',
+          code: data.code || 'SUBMISSION_ERROR'
+        };
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Submission error:', error);
+      return {
+        success: false,
+        message: 'Error submitting application'
+      };
+    }
+  }
+
+  // Session Monitoring
+  function checkSession() {
+    const token = localStorage.getItem('authToken');
+    if (!token) return false;
+    
+    try {
+      const decoded = jwt_decode(token);
+      if (decoded.exp * 1000 < Date.now()) {
+        // Token expired
+        localStorage.removeItem('authToken');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Check session periodically
+  setInterval(() => {
+    if (!checkSession()) {
+      alert('Your session has expired. Please log in again.');
+      window.location.href = 'login.html';
+    }
+  }, 300000); // Check every 5 minutes
+
+  // Simple JWT decode function
+  function jwt_decode(token) {
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''));
+
+      return JSON.parse(jsonPayload);
+    } catch (e) {
+      console.error('Error decoding token:', e);
+      return null;
+    }
+  }
+
+  // Update showSuccess function to accept custom message
+  function showSuccess(message = 'Your application has been received successfully!') {
+    const confirmation = document.getElementById('confirmation');
+    confirmation.innerHTML = `
+      <h3>${message}</h3>
+      <p>We are processing your information.</p>
+      <p>You will receive an SMS confirmation shortly.</p>
+      <p>Redirecting to dashboard...</p>
+    `;
+    document.getElementById('loanForm').style.display = 'none';
+    confirmation.style.display = 'block';
+  }
+
+  function showError(message) {
+    alert(message || 'There was an error processing your application. Please try again.');
+  }
+
+  // Allow form submission on Enter key in last field
+  document.getElementById('guarantorPhone').addEventListener('keyup', function(event) {
+    if (event.key === 'Enter') {
+      document.getElementById('loanForm').dispatchEvent(new Event('submit'));
+    }
+  });
+</script>
+</body>
+</html>
