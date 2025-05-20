@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Fonte Lenders - Login</title>
+    <style>
+        :root {
+            --gold: #FFD700;
+            --dark-bg: #121212;
+            --light-bg: rgba(30, 30, 30, 0.8);
+            --error: #ff6b6b;
+            --success: #4CAF50;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            font-family: 'Georgia', serif;
+            color: #e0e0e0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            line-height: 1.6;
+        }
+
+        .frame {
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 40px;
+            background: rgba(20, 20, 20, 0.8);
+            width: 90%;
+            max-width: 800px;
+            box-shadow: 0 0 40px rgba(255, 215, 0, 0.1);
+            position: relative;
+            margin: 30px 0;
+        }
+
+        .frame-corner {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 2px solid var(--gold);
+            opacity: 0.7;
+        }
+
+        .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+        .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+        .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+        h1, h2, h3 {
+            color: var(--gold);
+            font-family: 'Times New Roman', serif;
+            text-align: center;
+        }
+
+        .logo-header {
+            margin-bottom: 30px;
+            border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+            padding-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--gold);
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            color: white;
+            font-family: 'Georgia';
+            border-radius: 2px;
+            transition: border 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--gold);
+        }
+
+        .submit-btn {
+            background: linear-gradient(to right, #FFD700, #D4AF37);
+            color: #121212;
+            border: none;
+            padding: 15px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .submit-btn:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .error-message {
+            color: var(--error);
+            font-size: 0.8rem;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .confirmation {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            background: rgba(0, 100, 0, 0.2);
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            margin-top: 20px;
+            color: var(--success);
+        }
+
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--gold);
+            animation: spin 1s ease-in-out infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #verification-modal {
+            display: none; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: rgba(0,0,0,0.8); 
+            z-index: 1000; 
+            justify-content: center; 
+            align-items: center;
+        }
+
+        #verification-modal > div {
+            background: var(--dark-bg); 
+            padding: 30px; 
+            border: 1px solid var(--gold); 
+            max-width: 500px;
+            width: 90%;
+        }
+
+        #verification-message {
+            color: var(--gold);
+        }
+
+        #verification-modal button {
+            background: var(--gold); 
+            color: #000; 
+            padding: 10px 20px; 
+            margin-top: 20px; 
+            border: none; 
+            cursor: pointer;
+            width: 100%;
+        }
+
+        @media (max-width: 600px) {
+            .frame { padding: 20px; }
+            input { padding: 10px; font-size: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="frame">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <h1>FONTE LENDERS</h1>
+            <h2>Customer Login</h2>
+        </div>
+
+        <!-- Verification Modal -->
+        <div id="verification-modal">
+            <div>
+                <h3 id="verification-message"></h3>
+                <button onclick="document.getElementById('verification-modal').style.display='none'">
+                    Close
+                </button>
+            </div>
+        </div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="phone">Phone Number</label>
+                <input type="tel" id="phone" required pattern="[0-9]{10}" 
+                       placeholder="07XXXXXXXX" title="10-digit phone number">
+                <div class="error-message" id="phone-error">Please enter a valid 10-digit phone number</div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" required minlength="8"
+                       placeholder="Enter your password (minimum 8 characters)">
+                <div class="error-message" id="password-error">Password must be at least 8 characters</div>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submitBtn">
+                <div id="btnText">LOGIN</div>
+                <div class="spinner" id="spinner"></div>
+            </button>
+        </form>
+
+        <!-- Confirmation Message -->
+        <div class="confirmation" id="confirmation">
+            <h3>Login Successful!</h3>
+            <p>Redirecting you to your dashboard...</p>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px;">
+            <p>Don't have an account? <a href="register.html" style="color: var(--gold);">Register here</a></p>
+            <p><a href="forgot_password.html" style="color: var(--gold);">Forgot password?</a></p>
+        </div>
+    </div>
+
+<script>
+    // Form validation
+    function validateField(field, errorId, validationFn) {
+        const errorElement = document.getElementById(errorId);
+        const isValid = validationFn(field.value);
+        
+        if (!isValid) {
+            errorElement.style.display = 'block';
+            field.style.borderColor = 'var(--error)';
+            return false;
+        } else {
+            errorElement.style.display = 'none';
+            field.style.borderColor = 'rgba(255, 215, 0, 0.3)';
+            return true;
+        }
+    }
+
+    // Field validations
+    document.getElementById('phone').addEventListener('blur', function() {
+        validateField(this, 'phone-error', value => /^\d{10}$/.test(value));
+    });
+
+    document.getElementById('password').addEventListener('blur', function() {
+        validateField(this, 'password-error', value => value.length >= 8);
+    });
+
+    // Form submission
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        // Validate all fields
+        const isPhoneValid = validateField(
+            document.getElementById('phone'), 
+            'phone-error', 
+            value => /^\d{10}$/.test(value)
+        );
+        
+        const isPasswordValid = validateField(
+            document.getElementById('password'), 
+            'password-error', 
+            value => value.length >= 8
+        );
+        
+        if (!isPhoneValid || !isPasswordValid) {
+            return;
+        }
+        
+        // Show loading state
+        document.getElementById('btnText').textContent = 'Logging in...';
+        document.getElementById('spinner').style.display = 'block';
+        document.getElementById('submitBtn').disabled = true;
+        
+        // Prepare login data - normalize phone number
+        const phone = document.getElementById('phone').value.replace(/\D/g, '');
+        const formData = {
+            phone: phone,
+            password: document.getElementById('password').value
+        };
+        
+        try {
+            // Make API call to backend
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Login failed. Please check your credentials and try again.');
+            }
+
+            // Store the token and user data
+            localStorage.setItem('authToken', data.token);
+            localStorage.setItem('userData', JSON.stringify(data.user));
+
+            // Show success message
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('confirmation').style.display = 'block';
+            
+            // Redirect to dashboard after 2 seconds
+            setTimeout(() => {
+                window.location.href = 'dashboard.html';
+            }, 2000);
+            
+        } catch (error) {
+            console.error('Login error:', error);
+            
+            const modal = document.getElementById('verification-modal');
+            const errorMessage = error.message.includes('credentials') 
+                ? 'The phone number or password you entered is incorrect' 
+                : error.message || 'Login failed. Please try again.';
+            
+            document.getElementById('verification-message').textContent = errorMessage;
+            modal.style.display = 'flex';
+            
+            // Reset loading state
+            document.getElementById('btnText').textContent = 'LOGIN';
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('submitBtn').disabled = false;
+        }
+    });
+
+    // Allow login on Enter key press
+    document.getElementById('password').addEventListener('keyup', function(event) {
+        if (event.key === 'Enter') {
+            document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+        }
+    });
+
+    // Check for existing token and redirect if already logged in
+    document.addEventListener('DOMContentLoaded', () => {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            // Verify token is still valid
+            fetch('/api/validate-token', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    window.location.href = 'index.html';
+                } else {
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('userData');
+                }
+            })
+            .catch(() => {
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('userData');
+            });
+        }
+    });
+</script>
+</body>
+</html>

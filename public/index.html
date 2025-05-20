@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Fonte Lenders</title>
+    <style>
+        :root {
+            --gold: #FFD700;
+            --dark-bg: #121212;
+            --light-bg: rgba(30, 30, 30, 0.8);
+            --error: #ff6b6b;
+            --success: #4CAF50;
+            --whatsapp-green: #25D366;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            font-family: 'Georgia', serif;
+            color: #e0e0e0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            line-height: 1.6;
+        }
+
+        .frame {
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 40px;
+            background: rgba(20, 20, 20, 0.8);
+            width: 90%;
+            max-width: 800px;
+            box-shadow: 0 0 40px rgba(255, 215, 0, 0.1);
+            position: relative;
+            margin: 30px 0;
+        }
+
+        .frame-corner {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 2px solid var(--gold);
+            opacity: 0.7;
+        }
+
+        .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+        .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+        .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+        h1, h2, h3 {
+            color: var(--gold);
+            font-family: 'Times New Roman', serif;
+            text-align: center;
+        }
+
+        .welcome-message {
+            color: var(--gold);
+            text-align: center;
+            margin: 20px 0;
+            font-size: 1.3rem;
+            font-family: 'Times New Roman', serif;
+            font-weight: normal;
+            letter-spacing: 0.5px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+            position: relative;
+            padding-bottom: 15px;
+        }
+
+        .welcome-message::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 25%;
+            right: 25%;
+            height: 1px;
+            background: linear-gradient(to right, transparent, var(--gold), transparent);
+        }
+
+        .logo-header {
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        /* Contact Us Section */
+        .contact-section {
+            margin: 25px 0;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .contact-section h3 {
+            text-align: center;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+
+        .contact-numbers {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            background: rgba(255, 215, 0, 0.05);
+            border-radius: 30px;
+            padding: 8px 15px;
+            border: 1px solid rgba(255, 215, 0, 0.2);
+        }
+
+        .contact-number {
+            font-size: 1.1rem;
+            margin-right: 10px;
+        }
+
+        .call-btn {
+            background-color: var(--success);
+            color: white;
+            border: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .call-btn:hover {
+            background-color: #3e8e41;
+            transform: scale(1.1);
+        }
+
+        .call-btn i {
+            font-size: 14px;
+        }
+
+        /* WhatsApp Floating Button */
+        .whatsapp-float {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background-color: var(--whatsapp-green);
+            color: white;
+            border-radius: 30px;
+            text-align: center;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            padding: 10px 15px;
+            text-decoration: none;
+            font-size: 16px;
+        }
+
+        .whatsapp-float:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.4);
+        }
+
+        .whatsapp-float i {
+            margin-right: 8px;
+            font-size: 20px;
+        }
+
+        /* Hamburger Menu Styles */
+        .hamburger-menu {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+            z-index: 100;
+        }
+
+        .hamburger-icon {
+            width: 30px;
+            height: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hamburger-icon span {
+            display: block;
+            height: 3px;
+            width: 100%;
+            background-color: var(--gold);
+            transition: all 0.3s ease;
+        }
+
+        .menu-items {
+            position: absolute;
+            top: 40px;
+            right: 0;
+            background-color: var(--dark-bg);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            width: 150px;
+            padding: 10px;
+            display: none;
+            z-index: 99;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .menu-items a {
+            display: block;
+            color: var(--gold);
+            text-decoration: none;
+            padding: 8px 10px;
+            margin: 5px 0;
+            text-align: center;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            transition: all 0.3s;
+        }
+
+        .menu-items a:hover {
+            background-color: rgba(255, 215, 0, 0.1);
+        }
+
+        .menu-open .menu-items {
+            display: block;
+        }
+
+        .menu-open .hamburger-icon span:nth-child(1) {
+            transform: translateY(8px) rotate(45deg);
+        }
+
+        .menu-open .hamburger-icon span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .menu-open .hamburger-icon span:nth-child(3) {
+            transform: translateY(-8px) rotate(-45deg);
+        }
+
+        .submit-btn {
+            background: linear-gradient(to right, #FFD700, #D4AF37);
+            color: #121212;
+            border: none;
+            padding: 15px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            margin: 30px 0;
+            transition: all 0.3s;
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .nav-link {
+            color: var(--gold);
+            text-align: center;
+            display: block;
+            margin-top: 20px;
+            text-decoration: none;
+            border: 1px solid var(--gold);
+            padding: 10px;
+            border-radius: 4px;
+            transition: all 0.3s;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 215, 0, 0.1);
+        }
+
+        .nav-link.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .user-info {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            background: rgba(255, 215, 0, 0.05);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            border-radius: 4px;
+        }
+
+        .user-info p {
+            margin: 5px 0;
+        }
+
+        .user-info strong {
+            color: var(--gold);
+        }
+
+        .copyright {
+            text-align: center;
+            margin-top: 30px;
+            color: rgba(255, 215, 0, 0.7);
+            font-size: 0.9rem;
+            font-family: 'Georgia', serif;
+        }
+
+        @media (max-width: 600px) {
+            .frame { padding: 20px; }
+            .welcome-message { 
+                font-size: 1.1rem;
+                padding-bottom: 10px;
+            }
+            .welcome-message::after {
+                left: 15%;
+                right: 15%;
+            }
+            .contact-numbers {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .whatsapp-float {
+                font-size: 14px;
+                padding: 8px 12px;
+                bottom: 20px;
+                right: 20px;
+            }
+            .whatsapp-float i {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="frame">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <!-- Hamburger Menu -->
+            <div class="hamburger-menu" id="hamburgerMenu">
+                <div class="hamburger-icon">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <div class="menu-items" id="menuItems">
+                    <a href="login.html" id="loginLink">Login</a>
+                    <a href="register.html" id="registerLink">Register</a>
+                    <a href="logout.html" id="logoutLink">Logout</a>
+                </div>
+            </div>
+            
+            <h1>FONTE LENDERS</h1>
+            <div class="welcome-message">Welcome to Fonte Lenders - Your Partner In Need! We're here to offer quick, simple, and reliable financial support help whenever you need it. No stress, just support you can count on</div>
+        </div>
+
+        <!-- Contact Us Section -->
+        <div class="contact-section">
+            <h3>Contact Us</h3>
+            <div class="contact-numbers">
+                <div class="contact-item">
+                    <span class="contact-number">0701937629</span>
+                    <a href="tel:0701937629" class="call-btn">
+                        <i class="fa fa-phone"></i>
+                    </a>
+                </div>
+                <div class="contact-item">
+                    <span class="contact-number">0716365136</span>
+                    <a href="tel:0716365136" class="call-btn">
+                        <i class="fa fa-phone"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Info (shown when logged in) -->
+        <div class="user-info" id="userInfo">
+            <p>Welcome back, <strong id="userName"></strong></p>
+            <p>Phone: <strong id="userPhone"></strong></p>
+            <p>ID: <strong id="userIdNumber"></strong></p>
+        </div>
+
+        <!-- Links to other pages -->
+        <div style="text-align: center;">
+            <a href="index.html" class="nav-link disabled" id="index-link">Home Page</a><br>
+            <a href="apply.html" class="nav-link disabled" id="apply-link">Apply for Loan</a><br>
+            <a href="repay.html" class="nav-link disabled" id="repay-link">Repay Loan</a>
+        </div>
+
+        <!-- My Dashboard Button -->
+        <button class="submit-btn" id="dashboardBtn">MY DASHBOARD</button>
+
+        <!-- Registration Link -->
+        <div style="text-align: center;">
+            <p>Don't have an account? <a href="register.html" style="color: var(--gold);">Register here</a></p>
+        </div>
+
+        <!-- Copyright -->
+        <div class="copyright">
+            &copy; 2023 Fonte Lenders. All Rights Reserved.
+        </div>
+    </div>
+
+    <!-- WhatsApp Floating Button (now outside the frame) -->
+    <a href="https://wa.me/254701937629" class="whatsapp-float" target="_blank">
+        <i class="fa fa-whatsapp"></i> Chat with us
+    </a>
+
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+
+    <script>
+        // Hamburger menu functionality
+        document.getElementById('hamburgerMenu').addEventListener('click', function() {
+            this.classList.toggle('menu-open');
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', function(event) {
+            const hamburgerMenu = document.getElementById('hamburgerMenu');
+            if (!hamburgerMenu.contains(event.target)) {
+                hamburgerMenu.classList.remove('menu-open');
+            }
+        });
+
+        // Helper function to validate token
+        async function validateToken(token) {
+            try {
+                const response = await fetch('/api/validate-token', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                return response.ok;
+            } catch (error) {
+                console.error('Token validation error:', error);
+                return false;
+            }
+        }
+
+        // Dashboard button click handler
+        document.getElementById('dashboardBtn').addEventListener('click', function() {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                // Verify token is still valid before redirecting
+                validateToken(token).then(isValid => {
+                    if (isValid) {
+                        window.location.href = 'dashboard.html';
+                    } else {
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('userData');
+                        window.location.href = 'login.html';
+                    }
+                });
+            } else {
+                window.location.href = 'login.html';
+            }
+        });
+
+        // Logout function
+        function logout() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userData');
+            window.location.href = 'index.html';
+        }
+
+        // Check authentication status on page load
+        document.addEventListener("DOMContentLoaded", function() {
+            const token = localStorage.getItem('authToken');
+            const userData = JSON.parse(localStorage.getItem('userData'));
+            const userInfo = document.getElementById('userInfo');
+            const indexLink = document.getElementById('index-link');
+            const applyLink = document.getElementById('apply-link');
+            const repayLink = document.getElementById('repay-link');
+            const loginLink = document.getElementById('loginLink');
+            const registerLink = document.getElementById('registerLink');
+            const logoutLink = document.getElementById('logoutLink');
+            
+            if (token && userData) {
+                // User appears to be logged in - verify token
+                validateToken(token).then(isValid => {
+                    if (isValid) {
+                        // Token is valid - show user info and enable links
+                        userInfo.style.display = 'block';
+                        
+                        // Display user info
+                        document.getElementById('userName').textContent = userData.fullName || 'User';
+                        document.getElementById('userPhone').textContent = userData.phoneNumber || '';
+                        document.getElementById('userIdNumber').textContent = userData.customerId || '';
+                        
+                        // Enable navigation links
+                        indexLink.classList.remove('disabled');
+                        applyLink.classList.remove('disabled');
+                        repayLink.classList.remove('disabled');
+                        
+                        // Show logout link and hide login/register links
+                        loginLink.style.display = 'none';
+                        registerLink.style.display = 'none';
+                        logoutLink.style.display = 'block';
+                    } else {
+                        // Token is invalid - clear storage and hide user info
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('userData');
+                        userInfo.style.display = 'none';
+                        
+                        // Show login/register links and hide logout
+                        loginLink.style.display = 'block';
+                        registerLink.style.display = 'block';
+                        logoutLink.style.display = 'none';
+                    }
+                });
+            } else {
+                // User is not logged in
+                userInfo.style.display = 'none';
+                
+                // Show login/register links and hide logout
+                loginLink.style.display = 'block';
+                registerLink.style.display = 'block';
+                logoutLink.style.display = 'none';
+            }
+
+            // Add click handler to logout link
+            logoutLink.addEventListener('click', logout);
+        });
+    </script>
+</body>
+</html>
