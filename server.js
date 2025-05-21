@@ -13,15 +13,36 @@ const crypto = require('crypto');
 const app = express();
 
 // ==================== CONFIGURATION ====================
-app.use(cors({
-  origin: true,
-  credentials: true
-}));
-app.use(bodyParser.json({ limit: '10mb' }));
+// Critical: Body parsing middleware must come first
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public'), { 
-  index: false // Disable automatic index.html serving
+app.use(bodyParser.json({ 
+  limit: '10mb',
+  strict: true
 }));
+app.use(bodyParser.urlencoded({ extended: true }));
+
+app.use(cors({
+  origin: [
+    'https://fontelenders.vercel.app',
+    'http://localhost:3000'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.static(path.join(__dirname, 'public'), { 
+  index: false
+}));
+
+// Enhanced JSON response middleware
+app.use((req, res, next) => {
+  res.jsonResponse = (data, status = 200) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.status(status).json(data);
+  };
+  next();
+});
 
 // ==================== DATABASE CONNECTION ====================
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://fonteAppUser:secureAppPass123@localhost:27017/fonte_lenders?authSource=fonte_lenders';
@@ -58,6 +79,7 @@ const loanApplicationSchema = new mongoose.Schema({
   phoneNumber: { type: String, required: true },
   email: String,
   amount: { type: Number, required: true, min: 1000, max: 300000 },
+  purpose: String,
   guarantor: {
     name: { type: String, required: true },
     idNumber: { type: String, required: true },
@@ -97,9 +119,10 @@ const adminSchema = new mongoose.Schema({
 const tokenSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Customer' },
   token: { type: String, required: true },
-  expiresAt: { type: Date, required: true, index: { expires: '7d' } } // Auto-delete after 7 days
+  expiresAt: { type: Date, required: true, index: { expires: '7d' } }
 });
 
+// Password hashing and comparison methods
 adminSchema.pre('save', async function(next) {
   if (this.isModified('password')) {
     this.password = await bcrypt.hash(this.password, 10);
@@ -116,6 +139,16 @@ customerSchema.pre('save', async function(next) {
 
 customerSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
+};
+
+customerSchema.methods.debugPassword = async function(candidatePassword) {
+  const match = await bcrypt.compare(candidatePassword, this.password);
+  console.log('Password comparison:', {
+    storedHash: this.password,
+    candidate: candidatePassword,
+    match: match
+  });
+  return match;
 };
 
 adminSchema.methods.comparePassword = async function(candidatePassword) {
@@ -149,13 +182,13 @@ async function getJengaToken() {
           'Authorization': `Basic ${credentials}`,
           'Content-Type': 'application/json'
         },
-        timeout: 10000 // 10 second timeout
+        timeout: 10000
       }
     );
 
     jengaTokenCache = {
       token: response.data.access_token,
-      expires: Date.now() + 3500000 // 58 minutes
+      expires: Date.now() + 3500000
     };
 
     return jengaTokenCache.token;
@@ -186,7 +219,7 @@ async function verifyIDWithJenga(idNumber, fullName) {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        timeout: 10000 // 10 second timeout
+        timeout: 10000
       }
     );
 
@@ -199,8 +232,7 @@ async function verifyIDWithJenga(idNumber, fullName) {
   } catch (error) {
     console.error('Jenga verification error:', error.message);
     
-    // Fallback verification - basic checks
-    const isValid = idNumber.length >= 6; // Basic length validation
+    const isValid = idNumber.length >= 6;
     return {
       success: isValid,
       message: isValid 
@@ -217,22 +249,22 @@ const authenticate = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
-      return res.status(401).json({ 
+      return res.jsonResponse({ 
         success: false, 
         message: 'No token provided',
         code: 'NO_TOKEN'
-      });
+      }, 401);
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await Customer.findById(decoded.id).select('-password');
     
     if (!user) {
-      return res.status(401).json({ 
+      return res.jsonResponse({ 
         success: false, 
         message: 'User not found',
         code: 'USER_NOT_FOUND'
-      });
+      }, 401);
     }
 
     req.user = user;
@@ -241,18 +273,18 @@ const authenticate = async (req, res, next) => {
     console.error('Authentication error:', error);
     
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
+      return res.jsonResponse({ 
         success: false, 
         message: 'Session expired. Please log in again.',
         code: 'TOKEN_EXPIRED'
-      });
+      }, 401);
     }
     
-    res.status(401).json({ 
+    res.jsonResponse({ 
       success: false, 
       message: 'Invalid token',
       code: 'INVALID_TOKEN'
-    });
+    }, 401);
   }
 };
 
@@ -260,30 +292,33 @@ const authenticateAdmin = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
-      return res.status(401).json({ 
+      return res.jsonResponse({ 
         success: false, 
-        message: 'No token provided' 
-      });
+        message: 'No token provided',
+        code: 'NO_TOKEN'
+      }, 401);
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const admin = await Admin.findById(decoded.id).select('-password');
     
     if (!admin) {
-      return res.status(401).json({ 
+      return res.jsonResponse({ 
         success: false, 
-        message: 'Admin not found' 
-      });
+        message: 'Admin not found',
+        code: 'ADMIN_NOT_FOUND'
+      }, 401);
     }
 
     req.admin = admin;
     next();
   } catch (error) {
     console.error('Admin authentication error:', error);
-    res.status(401).json({ 
+    res.jsonResponse({ 
       success: false, 
-      message: 'Invalid admin token' 
-    });
+      message: 'Invalid admin token',
+      code: 'INVALID_ADMIN_TOKEN'
+    }, 401);
   }
 };
 
@@ -314,17 +349,16 @@ async function sendEmail(options) {
 
 // Admin Page Routes
 app.get('/admin', (req, res) => {
-  try {
-    res.sendFile(path.join(__dirname, 'public', 'admin.html'), (err) => {
-      if (err) {
-        console.error('Admin panel delivery error:', err);
-        res.status(404).send('Admin panel not found');
-      }
-    });
-  } catch (err) {
-    console.error('Admin route error:', err);
-    res.status(500).send('Server error');
-  }
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'), (err) => {
+    if (err) {
+      console.error('Admin panel delivery error:', err);
+      res.jsonResponse({
+        success: false,
+        message: 'Admin panel not found',
+        code: 'ADMIN_PANEL_NOT_FOUND'
+      }, 404);
+    }
+  });
 });
 
 app.get('/admin.html', (req, res) => {
@@ -337,20 +371,26 @@ app.post('/api/register', async (req, res) => {
     const { fullName, idNumber, phone, email, password } = req.body;
 
     if (!fullName || !idNumber || !phone || !password) {
-      return res.status(400).json({
+      return res.jsonResponse({
         success: false,
-        message: 'All required fields must be provided'
-      });
+        message: 'All required fields must be provided',
+        missingFields: [
+          ...(!fullName ? ['fullName'] : []),
+          ...(!idNumber ? ['idNumber'] : []),
+          ...(!phone ? ['phone'] : []),
+          ...(!password ? ['password'] : [])
+        ]
+      }, 400);
     }
 
     if (password.length < 6) {
-      return res.status(400).json({
+      return res.jsonResponse({
         success: false,
-        message: 'Password must be at least 6 characters'
-      });
+        message: 'Password must be at least 6 characters',
+        code: 'PASSWORD_TOO_SHORT'
+      }, 400);
     }
 
-    // Normalize phone number by removing non-digit characters
     const normalizedPhone = phone.replace(/\D/g, '');
 
     const existingUser = await Customer.findOne({ 
@@ -361,10 +401,11 @@ app.post('/api/register', async (req, res) => {
     });
     
     if (existingUser) {
-      return res.status(400).json({
+      return res.jsonResponse({
         success: false,
-        message: 'User already exists with this ID or phone number'
-      });
+        message: 'User already exists with this ID or phone number',
+        code: 'USER_EXISTS'
+      }, 400);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -389,9 +430,8 @@ app.post('/api/register', async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
 
-    // Generate refresh token
     const refreshToken = crypto.randomBytes(40).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     
     await Token.create({
       userId: newCustomer._id,
@@ -412,152 +452,194 @@ app.post('/api/register', async (req, res) => {
       });
     }
 
-    res.status(201).json({
+    res.jsonResponse({
       success: true,
       message: 'Registration successful',
       token,
       refreshToken,
       user: userData
-    });
+    }, 201);
 
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({
+    res.jsonResponse({
       success: false,
-      message: 'Registration failed. Please try again.'
-    });
+      message: 'Registration failed. Please try again.',
+      code: 'REGISTRATION_FAILED'
+    }, 500);
   }
 });
 
 app.post('/api/login', async (req, res) => {
   try {
+    console.log('Login request body:', req.body); // Debug log
+    
+    if (!req.body || typeof req.body !== 'object') {
+      return res.jsonResponse({
+        success: false,
+        message: 'Invalid request format',
+        code: 'INVALID_REQUEST'
+      }, 400);
+    }
+
     const { phone, password } = req.body;
 
     if (!phone || !password) {
-      return res.status(400).json({ 
+      return res.jsonResponse({
         success: false,
-        message: 'Phone and password are required' 
-      });
+        message: 'Phone and password are required',
+        code: 'MISSING_CREDENTIALS'
+      }, 400);
     }
 
-    // Normalize phone number by removing non-digit characters and ensure it starts with country code
-    let normalizedPhone = phone.replace(/\D/g, '');
+    // Normalize phone number (remove all non-digit characters)
+    const cleanPhone = phone.replace(/\D/g, '');
     
-    // If number starts with 0, convert to 254 (Kenyan format)
-    if (normalizedPhone.startsWith('0')) {
-      normalizedPhone = '254' + normalizedPhone.substring(1);
-    }
-    // If number starts with 7 (without country code), add 254
-    else if (normalizedPhone.length === 9 && normalizedPhone.startsWith('7')) {
-      normalizedPhone = '254' + normalizedPhone;
-    }
+    // Generate all possible phone formats
+    const possiblePhones = [
+      cleanPhone, // Original format
+      cleanPhone.startsWith('254') ? `0${cleanPhone.substring(3)}` : null, // Convert 254 to 0
+      cleanPhone.startsWith('0') ? `254${cleanPhone.substring(1)}` : null, // Convert 0 to 254
+      cleanPhone.startsWith('254') ? cleanPhone.substring(3) : null // Just the local number
+    ].filter(Boolean);
 
-    console.log('Attempting login with phone:', normalizedPhone); // Debug log
+    console.log('Searching for user with phone formats:', possiblePhones);
 
-    const customer = await Customer.findOne({ 
-      $or: [
-        { phoneNumber: normalizedPhone },
-        { phoneNumber: '0' + normalizedPhone.substring(3) }, // Try with 0 prefix
-        { phoneNumber: normalizedPhone.substring(3) } // Try without country code
-      ]
+    // Find user with any matching phone format
+    const user = await Customer.findOne({
+      phoneNumber: { $in: possiblePhones }
     }).select('+password');
 
-    if (!customer) {
-      console.log('No customer found with phone:', normalizedPhone); // Debug log
-      return res.status(401).json({ 
+    if (!user) {
+      console.log('User not found for any phone format');
+      return res.jsonResponse({
         success: false,
         message: 'Invalid credentials',
         code: 'INVALID_CREDENTIALS'
-      });
+      }, 401);
     }
 
-    console.log('Found customer:', customer.phoneNumber); // Debug log
-
-    const isMatch = await customer.comparePassword(password);
+    // Debug password comparison
+    const isMatch = await user.debugPassword(password);
     if (!isMatch) {
-      console.log('Password mismatch for customer:', customer.phoneNumber); // Debug log
-      return res.status(401).json({ 
+      console.log('Password does not match');
+      // Additional debug: Check if password needs to be reset
+      const shouldReset = await bcrypt.compare('test123', user.password);
+      console.log('Test password match:', shouldReset);
+      
+      return res.jsonResponse({
         success: false,
         message: 'Invalid credentials',
         code: 'INVALID_CREDENTIALS'
-      });
+      }, 401);
     }
 
-    customer.lastLogin = new Date();
-    await customer.save();
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
 
+    // Generate tokens
     const token = jwt.sign(
       { 
-        id: customer._id,
-        phone: customer.phoneNumber,
-        customerId: customer.customerId 
+        id: user._id,
+        phone: user.phoneNumber,
+        customerId: user.customerId 
       },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
 
-    // Generate refresh token
     const refreshToken = crypto.randomBytes(40).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     
     await Token.create({
-      userId: customer._id,
+      userId: user._id,
       token: refreshToken,
       expiresAt
     });
 
-    const userData = customer.toObject();
+    const userData = user.toObject();
     delete userData.password;
 
-    console.log('Login successful for:', customer.phoneNumber); // Debug log
-
-    res.json({ 
-      success: true, 
-      token, 
+    res.jsonResponse({
+      success: true,
+      token,
       refreshToken,
       user: userData,
-      message: 'Login successful' 
+      message: 'Login successful'
     });
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
+    res.jsonResponse({
       success: false,
-      message: 'Login failed. Please try again.'
-    });
+      message: 'Login failed. Please try again.',
+      code: 'LOGIN_FAILED'
+    }, 500);
   }
 });
 
-// Refresh Token Endpoint
+// Temporary password reset endpoint (remove in production)
+app.post('/api/reset-password', async (req, res) => {
+  try {
+    const { phone, newPassword } = req.body;
+    const user = await Customer.findOne({ phoneNumber: phone }).select('+password');
+    
+    if (!user) {
+      return res.jsonResponse({
+        success: false,
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
+      }, 404);
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    
+    res.jsonResponse({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('Password reset error:', error);
+    res.jsonResponse({
+      success: false,
+      message: 'Password reset failed',
+      code: 'PASSWORD_RESET_FAILED'
+    }, 500);
+  }
+});
+
 app.post('/api/refresh-token', async (req, res) => {
   try {
     const { refreshToken } = req.body;
     
     if (!refreshToken) {
-      return res.status(400).json({
+      return res.jsonResponse({
         success: false,
-        message: 'Refresh token is required'
-      });
+        message: 'Refresh token is required',
+        code: 'MISSING_REFRESH_TOKEN'
+      }, 400);
     }
 
-    // Verify refresh token
     const tokenDoc = await Token.findOne({ token: refreshToken }).populate('userId');
     if (!tokenDoc) {
-      return res.status(401).json({
+      return res.jsonResponse({
         success: false,
-        message: 'Invalid refresh token'
-      });
+        message: 'Invalid refresh token',
+        code: 'INVALID_REFRESH_TOKEN'
+      }, 401);
     }
 
     if (tokenDoc.expiresAt < new Date()) {
       await Token.deleteOne({ _id: tokenDoc._id });
-      return res.status(401).json({
+      return res.jsonResponse({
         success: false,
-        message: 'Refresh token expired'
-      });
+        message: 'Refresh token expired',
+        code: 'REFRESH_TOKEN_EXPIRED'
+      }, 401);
     }
 
-    // Generate new access token
     const newToken = jwt.sign(
       { 
         id: tokenDoc.userId._id,
@@ -568,20 +650,18 @@ app.post('/api/refresh-token', async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
 
-    // Generate new refresh token
     const newRefreshToken = crypto.randomBytes(40).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     
     await Token.create({
       userId: tokenDoc.userId._id,
       token: newRefreshToken,
-      expiresAt
+      expiresAt: newExpiresAt
     });
 
-    // Delete old refresh token
     await Token.deleteOne({ _id: tokenDoc._id });
 
-    res.json({
+    res.jsonResponse({
       success: true,
       token: newToken,
       refreshToken: newRefreshToken
@@ -589,10 +669,11 @@ app.post('/api/refresh-token', async (req, res) => {
 
   } catch (error) {
     console.error('Token refresh error:', error);
-    res.status(500).json({
+    res.jsonResponse({
       success: false,
-      message: 'Failed to refresh token'
-    });
+      message: 'Failed to refresh token',
+      code: 'TOKEN_REFRESH_FAILED'
+    }, 500);
   }
 });
 
@@ -608,7 +689,6 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       loanPurpose
     } = req.body;
 
-    // Validate required fields
     const requiredFields = { 
       amount, 
       guarantorName, 
@@ -622,33 +702,34 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       .map(([key]) => key);
 
     if (missingFields.length > 0) {
-      return res.status(400).json({
+      return res.jsonResponse({
         success: false,
         message: 'Missing required fields',
         missingFields,
-        details: 'Please complete all required fields'
-      });
+        code: 'MISSING_REQUIRED_FIELDS'
+      }, 400);
     }
 
     const customer = await Customer.findById(req.user._id)
       .select('+customerId +fullName +phoneNumber +email +maxLoanLimit +currentLoanBalance');
     
     if (!customer) {
-      return res.status(404).json({
+      return res.jsonResponse({
         success: false,
         message: 'Customer not found',
-        details: 'Your account could not be found'
-      });
+        code: 'CUSTOMER_NOT_FOUND'
+      }, 404);
     }
 
     const availableLimit = customer.maxLoanLimit - customer.currentLoanBalance;
     if (amount > availableLimit) {
-      return res.status(400).json({
+      return res.jsonResponse({
         success: false,
         message: 'Loan limit exceeded',
         details: `Your available limit is KES ${availableLimit.toLocaleString()}`,
-        availableLimit
-      });
+        availableLimit,
+        code: 'LOAN_LIMIT_EXCEEDED'
+      }, 400);
     }
 
     const [customerVerification, guarantorVerification] = await Promise.all([
@@ -657,18 +738,17 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
     ]);
 
     if (!customerVerification.success || !guarantorVerification.success) {
-      return res.status(400).json({
+      return res.jsonResponse({
         success: false,
         message: 'Verification failed',
         customerVerified: customerVerification.success,
         guarantorVerified: guarantorVerification.success,
-        requiresManualVerification: customerVerification.fallback || guarantorVerification.fallback
-      });
+        requiresManualVerification: customerVerification.fallback || guarantorVerification.fallback,
+        code: 'VERIFICATION_FAILED'
+      }, 400);
     }
 
-    // Create loan application with nested guarantor structure
     const application = new LoanApplication({
-      customer: customer._id,
       customerId: customer.customerId,
       userId: customer._id,
       fullName: customer.fullName,
@@ -694,17 +774,14 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
 
     await application.save();
 
-    // Send notifications
     const sendNotifications = async () => {
       try {
-        // Admin notification
         await sendEmail({
           to: process.env.ADMIN_EMAIL,
           subject: 'New Loan Application Submitted',
           html: generateAdminNotificationEmail(customer, application, availableLimit)
         });
 
-        // Customer notification
         if (customer.email) {
           await sendEmail({
             to: customer.email,
@@ -717,10 +794,9 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       }
     };
 
-    sendNotifications(); // Don't await to speed up response
+    sendNotifications();
 
-    // Success response
-    return res.status(201).json({
+    return res.jsonResponse({
       success: true,
       message: customerVerification.fallback 
         ? 'Application submitted (pending manual verification)' 
@@ -730,16 +806,18 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
         customer: customerVerification,
         guarantor: guarantorVerification
       },
-      requiresManualVerification: customerVerification.fallback
-    });
+      requiresManualVerification: customerVerification.fallback,
+      code: 'LOAN_APPLICATION_SUBMITTED'
+    }, 201);
 
   } catch (error) {
     console.error('Loan submission error:', error);
-    return res.status(500).json({
+    return res.jsonResponse({
       success: false,
       message: 'Error submitting application',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      code: 'LOAN_SUBMISSION_ERROR'
+    }, 500);
   }
 });
 
@@ -797,7 +875,6 @@ function generateCustomerConfirmationEmail(customer, application, verification) 
 // ==================== SERVER INITIALIZATION ====================
 const PORT = process.env.PORT || 3000;
 
-// Initialize admin account after successful connection
 async function initializeAdmin() {
   try {
     const adminCount = await Admin.countDocuments();
@@ -819,7 +896,6 @@ async function initializeAdmin() {
   }
 }
 
-// Connect to MongoDB and start server
 async function startServer() {
   try {
     await mongoose.connect(MONGODB_URI, {
@@ -830,30 +906,55 @@ async function startServer() {
       connectTimeoutMS: 10000,
       maxPoolSize: 10
     });
-    
-    console.log('✅ MongoDB connected securely');
-    await initializeAdmin();
-    
-    // Add explicit route for root path
-    app.get('/', (req, res) => {
-      res.sendFile(path.join(__dirname, 'public', 'index.html'), (err) => {
-        if (err) {
-          console.error('Error serving index.html:', err);
-          res.status(404).send('Page not found');
-        }
-      });
+
+    mongoose.connection.on('connected', async () => {
+      console.log('✅ MongoDB connected securely');
+      
+      try {
+        await mongoose.connection.db.admin().ping();
+        console.log('🗄️ Database ping successful');
+        
+        await initializeAdmin();
+
+        app.get('/', (req, res) => {
+          res.sendFile(path.join(__dirname, 'public', 'index.html'), (err) => {
+            if (err) {
+              console.error('Error serving index.html:', err);
+              res.status(404).json({
+                success: false,
+                message: 'Page not found',
+                code: 'PAGE_NOT_FOUND'
+              });
+            }
+          });
+        });
+
+        const server = app.listen(PORT, '0.0.0.0', () => {
+          console.log(`🚀 Server running on http://localhost:${PORT}`);
+        });
+
+        server.on('error', (err) => {
+          console.error('Server error:', err);
+          process.exit(1);
+        });
+
+      } catch (err) {
+        console.error('❌ Database verification failed:', err);
+        process.exit(1);
+      }
     });
 
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on http://localhost:${PORT}`);
+    mongoose.connection.on('error', err => {
+      console.error('❌ MongoDB connection error:', err);
+      process.exit(1);
     });
+
   } catch (err) {
-    console.error('❌ MongoDB connection error:', err.message);
+    console.error('❌ Startup failed:', err);
     process.exit(1);
   }
 }
 
-// Start the server
 startServer();
 
 // Error handling
