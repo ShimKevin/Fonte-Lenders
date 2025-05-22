@@ -45,30 +45,89 @@ app.use((req, res, next) => {
 });
 
 // ==================== DATABASE CONNECTION ====================
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://fonteAppUser:secureAppPass123@localhost:27017/fonte_lenders?authSource=fonte_lenders';
+const getMongoURI = () => {
+  // Priority 1: Use Vercel's provided URI if available
+  if (process.env.MONGODB_URI) {
+    return process.env.MONGODB_URI;
+  }
+  
+  // Priority 2: Use Atlas in production environment
+  if (process.env.NODE_ENV === 'production') {
+    return process.env.MONGODB_ATLAS_URI;
+  }
+  
+  // Priority 3: Default to local development database
+  return process.env.MONGODB_LOCAL_URI;
+};
+
+const MONGODB_URI = getMongoURI();
 
 mongoose.set('strictQuery', true);
 
-mongoose.connect(MONGODB_URI, {
-  serverSelectionTimeoutMS: 5000,
-  retryWrites: true,
-  retryReads: true,
-  socketTimeoutMS: 30000,
-  connectTimeoutMS: 10000,
-  maxPoolSize: 10
-})
-.then(() => console.log('✅ MongoDB connected securely'))
-.catch(err => {
-  console.error('❌ MongoDB connection error:', err.message);
-  process.exit(1);
-});
+// Enhanced connection handler with retries and fallback
+const connectWithRetry = async (uri, options, isFallback = false) => {
+  try {
+    await mongoose.connect(uri, options);
+    console.log(`✅ MongoDB ${isFallback ? 'fallback ' : ''}connected to ${uri.includes('localhost') ? 'local' : 'Atlas'} database`);
+    return true;
+  } catch (err) {
+    console.error(`❌ ${isFallback ? 'Fallback ' : ''}MongoDB connection failed:`, err.message);
+    return false;
+  }
+};
 
+const connectDB = async () => {
+  const connectionOptions = {
+    serverSelectionTimeoutMS: parseInt(process.env.DB_TIMEOUT || '5000'),
+    retryWrites: true,
+    retryReads: true,
+    socketTimeoutMS: 30000,
+    connectTimeoutMS: 10000,
+    maxPoolSize: 10
+  };
+
+  // Attempt primary connection
+  const connected = await connectWithRetry(MONGODB_URI, connectionOptions);
+  
+  if (!connected) {
+    // Attempt fallback only in production when Atlas fails
+    if (process.env.NODE_ENV === 'production' && MONGODB_URI === process.env.MONGODB_ATLAS_URI) {
+      console.log('⚠️ Attempting fallback to local database...');
+      const fallbackOptions = { ...connectionOptions, serverSelectionTimeoutMS: 5000 };
+      const fallbackConnected = await connectWithRetry(process.env.MONGODB_LOCAL_URI, fallbackOptions, true);
+      
+      if (!fallbackConnected) {
+        console.error('❌ All database connection attempts failed');
+        process.exit(1);
+      }
+    } else {
+      process.exit(1);
+    }
+  }
+};
+
+// Initialize connection
+connectDB();
+
+// Event listeners for connection monitoring
 mongoose.connection.on('disconnected', () => {
   console.warn('⚠️ MongoDB disconnected');
+  // Optional: Implement reconnection logic here
 });
 
 mongoose.connection.on('reconnected', () => {
   console.log('🔁 MongoDB reconnected');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err.message);
+});
+
+// Close connection gracefully on process termination
+process.on('SIGINT', async () => {
+  await mongoose.connection.close();
+  console.log('⏏️ MongoDB connection closed due to app termination');
+  process.exit(0);
 });
 
 // ==================== MODELS ====================
