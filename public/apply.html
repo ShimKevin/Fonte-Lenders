@@ -470,7 +470,87 @@
     errorElement.style.display = this.checked ? 'none' : 'block';
   });
 
-  // Enhanced Form Submission with Session Management
+  // Enhanced Submit Loan Application Function with dynamic API URL
+  async function submitLoanApplication(formData) {
+    try {
+      // Determine the correct API URL based on environment
+      const apiUrl = window.location.hostname === 'localhost' 
+        ? 'http://localhost:3000/api/submit-loan' 
+        : 'https://your-vercel-app-name.vercel.app/api/submit-loan'
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify(formData)
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        return {
+          success: false,
+          message: data.message || 'Submission failed',
+          code: data.code || 'SUBMISSION_ERROR',
+          requiresManualVerification: data.requiresManualVerification || false
+        };
+      }
+
+      return {
+        success: true,
+        requiresManualVerification: data.requiresManualVerification || false,
+        message: data.message || 'Application submitted successfully'
+      };
+    } catch (error) {
+      console.error('Submission error:', error);
+      let errorMessage = 'Error submitting application';
+      
+      if (error.message.includes('Failed to fetch')) {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.message.includes('Unexpected token')) {
+        errorMessage = 'Server error. Please try again later.';
+      }
+      
+      return {
+        success: false,
+        message: errorMessage,
+        code: 'NETWORK_ERROR'
+      };
+    }
+  }
+
+  // Token Refresh Function
+  async function refreshToken() {
+    try {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (!refreshToken) throw new Error('No refresh token available');
+      
+      const response = await fetch('/api/refresh-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ refreshToken })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        localStorage.setItem('authToken', data.token);
+        localStorage.setItem('refreshToken', data.refreshToken);
+        return { success: true };
+      } else {
+        throw new Error(data.message || 'Token refresh failed');
+      }
+    } catch (error) {
+      console.error('Token refresh error:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  // Enhanced Form Submission Handler
   document.getElementById('loanForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     
@@ -565,67 +645,6 @@
       document.getElementById('submitBtn').disabled = false;
     }
   });
-
-  // Token Refresh Function
-  async function refreshToken() {
-    try {
-      const refreshToken = localStorage.getItem('refreshToken');
-      if (!refreshToken) throw new Error('No refresh token available');
-      
-      const response = await fetch('/api/refresh-token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ refreshToken })
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('refreshToken', data.refreshToken);
-        return { success: true };
-      } else {
-        throw new Error(data.message || 'Token refresh failed');
-      }
-    } catch (error) {
-      console.error('Token refresh error:', error);
-      return { success: false, message: error.message };
-    }
-  }
-
-  // Enhanced Submit Loan Application Function
-  async function submitLoanApplication(formData) {
-    try {
-      const response = await fetch('/api/submit-loan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        },
-        body: JSON.stringify(formData)
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        return {
-          success: false,
-          message: data.message || 'Submission failed',
-          code: data.code || 'SUBMISSION_ERROR'
-        };
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Submission error:', error);
-      return {
-        success: false,
-        message: 'Error submitting application'
-      };
-    }
-  }
 
   // Session Monitoring
   function checkSession() {
