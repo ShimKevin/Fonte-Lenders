@@ -13,7 +13,6 @@ const crypto = require('crypto');
 const app = express();
 
 // ==================== CONFIGURATION ====================
-// Critical: Body parsing middleware must come first
 app.use(express.json());
 app.use(bodyParser.json({ 
   limit: '10mb',
@@ -44,65 +43,45 @@ app.use((req, res, next) => {
   next();
 });
 
-// ==================== DATABASE CONNECTION ====================
-const getMongoURI = () => {
-  // Priority 1: Use Vercel's provided URI if available
-  if (process.env.MONGODB_URI) {
-    return process.env.MONGODB_URI;
-  }
-  
-  // Priority 2: Use Atlas in production environment
-  if (process.env.NODE_ENV === 'production') {
-    return process.env.MONGODB_ATLAS_URI;
-  }
-  
-  // Priority 3: Default to local development database
-  return process.env.MONGODB_LOCAL_URI;
-};
-
-const MONGODB_URI = getMongoURI();
+// ==================== PRODUCTION-READY DATABASE CONNECTION ====================
+const MONGODB_URI = process.env.MONGODB_URI || 
+  "mongodb+srv://kevinshimanjala:FonteLenders%40254@cluster0.g2bzscn.mongodb.net/fonte_lenders?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.set('strictQuery', true);
 
-// Enhanced connection handler with retries and fallback
-const connectWithRetry = async (uri, options, isFallback = false) => {
-  try {
-    await mongoose.connect(uri, options);
-    console.log(`✅ MongoDB ${isFallback ? 'fallback ' : ''}connected to ${uri.includes('localhost') ? 'local' : 'Atlas'} database`);
-    return true;
-  } catch (err) {
-    console.error(`❌ ${isFallback ? 'Fallback ' : ''}MongoDB connection failed:`, err.message);
-    return false;
-  }
-};
-
+// Enhanced connection with error handling and monitoring
 const connectDB = async () => {
   const connectionOptions = {
-    serverSelectionTimeoutMS: parseInt(process.env.DB_TIMEOUT || '5000'),
+    serverSelectionTimeoutMS: 10000,  // Increased from 5000
+    socketTimeoutMS: 45000,          // Increased from 30000
+    connectTimeoutMS: 30000,
     retryWrites: true,
     retryReads: true,
-    socketTimeoutMS: 30000,
-    connectTimeoutMS: 10000,
-    maxPoolSize: 10
+    maxPoolSize: 15                  // Increased pool size
   };
 
-  // Attempt primary connection
-  const connected = await connectWithRetry(MONGODB_URI, connectionOptions);
-  
-  if (!connected) {
-    // Attempt fallback only in production when Atlas fails
-    if (process.env.NODE_ENV === 'production' && MONGODB_URI === process.env.MONGODB_ATLAS_URI) {
-      console.log('⚠️ Attempting fallback to local database...');
-      const fallbackOptions = { ...connectionOptions, serverSelectionTimeoutMS: 5000 };
-      const fallbackConnected = await connectWithRetry(process.env.MONGODB_LOCAL_URI, fallbackOptions, true);
-      
-      if (!fallbackConnected) {
-        console.error('❌ All database connection attempts failed');
-        process.exit(1);
-      }
-    } else {
-      process.exit(1);
+  try {
+    await mongoose.connect(MONGODB_URI, connectionOptions);
+    console.log('✅ MongoDB Atlas connected');
+    
+    // Verify connection with a ping
+    await mongoose.connection.db.admin().ping();
+    console.log('🗄️ Database ping successful');
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err.message);
+    
+    // Detailed error analysis
+    if (err.name === 'MongoServerError') {
+      console.log('🔐 Authentication failed. Please check:');
+      console.log('- Password is correct and URL encoded');
+      console.log('- User has proper permissions in Atlas');
+    } else if (err.message.includes('ECONNREFUSED')) {
+      console.log('🌐 Network connection refused. Check:');
+      console.log('- IP is whitelisted in Atlas');
+      console.log('- No firewall blocking connections');
     }
+    
+    process.exit(1); // Exit with error in production
   }
 };
 
@@ -112,7 +91,8 @@ connectDB();
 // Event listeners for connection monitoring
 mongoose.connection.on('disconnected', () => {
   console.warn('⚠️ MongoDB disconnected');
-  // Optional: Implement reconnection logic here
+  // Implement automatic reconnection if needed
+  setTimeout(() => connectDB(), 5000);
 });
 
 mongoose.connection.on('reconnected', () => {
@@ -123,7 +103,7 @@ mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err.message);
 });
 
-// Close connection gracefully on process termination
+// Graceful shutdown
 process.on('SIGINT', async () => {
   await mongoose.connection.close();
   console.log('⏏️ MongoDB connection closed due to app termination');
