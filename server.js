@@ -924,7 +924,7 @@ const mongooseOptions = {
   heartbeatFrequencyMS: 10000
 };
 
-// Connection function that can be called for initial connection and reconnections
+// Single connectDB function implementation
 async function connectDB() {
   try {
     console.log('⌛ Attempting MongoDB connection...');
@@ -944,11 +944,25 @@ async function connectDB() {
     return true;
   } catch (err) {
     console.error('❌ MongoDB connection failed:', err.message);
+    
+    // Specific error handling
+    if (err.name === 'MongoServerError') {
+      console.log('🔐 Authentication failed. Please check:');
+      console.log('- Password is correct and URL encoded');
+      console.log('- User has proper permissions in Atlas');
+    } else if (err.message.includes('ECONNREFUSED')) {
+      console.log('🌐 Network connection refused. Check:');
+      console.log('- IP is whitelisted in Atlas');
+      console.log('- No firewall blocking connections');
+    } else if (err.name === 'MongoNetworkError') {
+      console.log('🔄 Network error detected - will attempt reconnect...');
+    }
+    
     return false;
   }
 }
 
-// Add this admin initialization function
+// Admin initialization function
 async function initializeAdmin() {
   try {
     const adminCount = await mongoose.connection.db.collection('admins').countDocuments();
@@ -968,40 +982,26 @@ async function initializeAdmin() {
   }
 }
 
+// Database connection test function
 async function testDatabaseConnection() {
   try {
-    // Wait for connection to be established
     await new Promise(resolve => mongoose.connection.once('connected', resolve));
-    
-    // Verify connection with a ping command
     const pingResult = await mongoose.connection.db.command({ ping: 1 });
     console.log('🗄️ Database ping successful:', pingResult.ok === 1 ? 'OK' : 'Failed');
     return pingResult.ok === 1;
   } catch (err) {
     console.error('❌ Database verification failed:', err);
-    
-    if (err.name === 'MongoServerError') {
-      console.log('🔐 Authentication failed. Please check:');
-      console.log('- Password is correct and URL encoded');
-      console.log('- User has proper permissions in Atlas');
-    } else if (err.message.includes('ECONNREFUSED')) {
-      console.log('🌐 Network connection refused. Check:');
-      console.log('- IP is whitelisted in Atlas');
-      console.log('- No firewall blocking connections');
-    }
-    
     return false;
   }
 }
 
+// Server startup function
 async function startServer() {
   try {
-    // First attempt to connect
     if (!await connectDB()) {
       throw new Error('Initial database connection failed');
     }
 
-    // Start server
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
     });
@@ -1011,7 +1011,6 @@ async function startServer() {
       process.exit(1);
     });
 
-    // Graceful shutdown
     process.on('SIGINT', async () => {
       console.log('\n🛑 Received shutdown signal');
       await mongoose.connection.close();
@@ -1024,12 +1023,11 @@ async function startServer() {
 
   } catch (err) {
     console.error('❌ Fatal startup error:', err.message);
-    console.error('Stack trace:', err.stack);
     process.exit(1);
   }
 }
 
-// MongoDB connection event listeners
+// MongoDB event listeners
 mongoose.connection.on('connected', () => {
   console.log('📊 MongoDB connection established');
 });
@@ -1041,12 +1039,10 @@ mongoose.connection.on('disconnected', () => {
 
 mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err);
-  // For certain errors, you might want to attempt reconnection immediately
   if (err.name === 'MongoNetworkError') {
-    console.log('🔄 Network error detected - attempting reconnect...');
     setTimeout(connectDB, 1000);
   }
 });
 
-// Start the server
+// Start the application
 startServer();
