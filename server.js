@@ -14,15 +14,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // ==================== MONGODB CONNECTION ====================
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://kevinshimanjala:FonteLenders%40254@cluster0.g2bzscn.mongodb.net/fonte_lenders?retryWrites=true&w=majority&appName=Cluster0";
+
 const mongooseOptions = {
   serverSelectionTimeoutMS: 10000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 30000,
+  socketTimeoutMS: 30000,
   retryWrites: true,
   retryReads: true,
-  w: 'majority',
-  maxPoolSize: 15,
-  heartbeatFrequencyMS: 10000,
+  maxPoolSize: 10,
   ssl: true,
   tlsAllowInvalidCertificates: false
 };
@@ -30,11 +29,26 @@ const mongooseOptions = {
 const connectDB = async () => {
   try {
     console.log('⌛ Attempting MongoDB connection...');
-    await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
+    const maskedURI = MONGODB_URI.replace(/:[^@]+@/, ':********@');
+    console.log(`Connecting to: ${maskedURI}`);
+    
+    await mongoose.connect(MONGODB_URI, mongooseOptions);
     console.log('✅ MongoDB connected successfully');
     return true;
   } catch (err) {
     console.error('❌ MongoDB connection error:', err.message);
+    
+    if (err.name === 'MongoServerError') {
+      console.log('🔐 Authentication failed. Please check:');
+      console.log('- Password is correct and URL encoded');
+      console.log('- User has proper permissions in Atlas');
+    } else if (err.message.includes('ECONNREFUSED') || err.message.includes('ENOTFOUND')) {
+      console.log('🌐 Network connection error. Check:');
+      console.log('- IP is whitelisted in Atlas');
+      console.log('- No firewall blocking connections');
+      console.log('- Correct connection string format');
+    }
+    
     return false;
   }
 };
