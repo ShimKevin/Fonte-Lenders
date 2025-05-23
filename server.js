@@ -11,33 +11,57 @@ const axios = require('axios');
 const crypto = require('crypto');
 
 const app = express();
+const PORT = process.env.PORT || 3001;
+
+// ==================== MONGODB CONNECTION ====================
+const mongooseOptions = {
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  connectTimeoutMS: 30000,
+  retryWrites: true,
+  retryReads: true,
+  w: 'majority',
+  maxPoolSize: 15,
+  heartbeatFrequencyMS: 10000,
+  ssl: true,
+  tlsAllowInvalidCertificates: false
+};
+
+const connectDB = async () => {
+  try {
+    console.log('⌛ Attempting MongoDB connection...');
+    await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
+    console.log('✅ MongoDB connected successfully');
+    return true;
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err.message);
+    return false;
+  }
+};
 
 // ==================== CONFIGURATION ====================
 app.use(express.json());
-app.use(bodyParser.json({ 
-  limit: '10mb',
-  strict: true
-}));
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true }));
 
 app.use(cors({
   origin: [
-    'http://localhost:3000'
+    'http://localhost:3000',
+    'https://fonte-lenders.onrender.com'
   ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-app.use(express.static(path.join(__dirname, 'public'), { 
-  index: false
-}));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Enhanced JSON response middleware
 app.use((req, res, next) => {
   res.jsonResponse = (data, status = 200) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.status(status).json(data);
+    res.status(status).json({
+      success: status >= 200 && status < 300,
+      ...data
+    });
   };
   next();
 });
@@ -843,113 +867,30 @@ function generateCustomerConfirmationEmail(customer, application, verification) 
   `;
 }
 
-// ==================== MONGODB CONNECTION ====================
-const MONGODB_URI = process.env.MONGODB_URI || 
-  "mongodb+srv://kevinshimanjala:FonteLenders%40254@cluster0.g2bzscn.mongodb.net/fonte_lenders?retryWrites=true&w=majority&appName=Cluster0";
+// ==================== ERROR HANDLER ====================
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.jsonResponse({
+    message: err.message || 'Internal Server Error'
+  }, 500);
+});
 
-mongoose.set('strictQuery', true);
-
-const mongooseOptions = {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 10000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 30000,
-  retryWrites: true,
-  retryReads: true,
-  w: 'majority',
-  maxPoolSize: 15,
-  heartbeatFrequencyMS: 10000
-};
-
-// Single connectDB implementation
-const connectDB = async () => {
+// ==================== SERVER STARTUP ====================
+const startServer = async () => {
   try {
-    console.log('⌛ Attempting MongoDB connection...');
-    const maskedURI = MONGODB_URI.replace(/:[^@]+@/, ':********@');
-    console.log(`Connecting to: ${maskedURI}`);
-    
-    await mongoose.connect(MONGODB_URI, mongooseOptions);
-    console.log('✅ MongoDB connected successfully');
-
-    // Verify connection with a ping
-    await mongoose.connection.db.admin().ping();
-    console.log('🗄️ Database ping successful');
-
-    // Initialize admin if needed
-    await initializeAdmin();
-    
-    return true;
-  } catch (err) {
-    console.error('❌ MongoDB connection error:', err.message);
-    
-    // Detailed error analysis
-    if (err.name === 'MongoServerError') {
-      console.log('🔐 Authentication failed. Please check:');
-      console.log('- Password is correct and URL encoded');
-      console.log('- User has proper permissions in Atlas');
-    } else if (err.message.includes('ECONNREFUSED')) {
-      console.log('🌐 Network connection refused. Check:');
-      console.log('- IP is whitelisted in Atlas');
-      console.log('- No firewall blocking connections');
+    const dbConnected = await connectDB();
+    if (!dbConnected) {
+      throw new Error('Failed to connect to database');
     }
-    
-    return false;
+
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📊 MongoDB state: ${mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
   }
 };
 
-// Admin initialization
-const initializeAdmin = async () => {
-  if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
-    console.log('ℹ️ Admin credentials not provided - skipping admin initialization');
-    return;
-  }
-
-  try {
-    const adminCount = await mongoose.connection.db.collection('admins').countDocuments();
-    if (adminCount === 0) {
-      const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
-      await mongoose.connection.db.collection('admins').insertOne({
-        username: process.env.ADMIN_USERNAME,
-        password: hashedPassword,
-        role: 'superadmin',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      });
-      console.log('✅ Initial admin account created');
-    }
-  } catch (err) {
-    console.error('❌ Admin initialization error:', err);
-  }
-};
-
-// Event listeners for connection monitoring
-mongoose.connection.on('connected', () => {
-  console.log('📊 MongoDB connection established');
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.warn('⚠️ MongoDB disconnected - attempting to reconnect...');
-  setTimeout(connectDB, 5000);
-});
-
-mongoose.connection.on('error', (err) => {
-  console.error('❌ MongoDB connection error:', err.message);
-  if (err.name === 'MongoNetworkError') {
-    setTimeout(connectDB, 1000);
-  }
-});
-
-mongoose.connection.on('reconnected', () => {
-  console.log('🔁 MongoDB reconnected');
-});
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  await mongoose.connection.close();
-  console.log('⏏️ MongoDB connection closed due to app termination');
-  process.exit(0);
-});
-
-// Initialize connection
-connectDB();
+startServer();
