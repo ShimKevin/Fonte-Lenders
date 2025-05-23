@@ -17,8 +17,9 @@ const PORT = process.env.PORT || 3001;
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://kevinshimanjala:FonteLenders%40254@cluster0.g2bzscn.mongodb.net/fonte_lenders?retryWrites=true&w=majority&appName=Cluster0";
 
 const mongooseOptions = {
-  serverSelectionTimeoutMS: 10000,
+  serverSelectionTimeoutMS: 5000,
   socketTimeoutMS: 30000,
+  connectTimeoutMS: 5000,
   retryWrites: true,
   retryReads: true,
   maxPoolSize: 10,
@@ -26,29 +27,22 @@ const mongooseOptions = {
   tlsAllowInvalidCertificates: false
 };
 
-const connectDB = async () => {
+const connectWithRetry = async (attempt = 1) => {
   try {
-    console.log('⌛ Attempting MongoDB connection...');
-    const maskedURI = MONGODB_URI.replace(/:[^@]+@/, ':********@');
-    console.log(`Connecting to: ${maskedURI}`);
-    
+    console.log(`⌛ Attempting MongoDB connection (attempt ${attempt})...`);
     await mongoose.connect(MONGODB_URI, mongooseOptions);
     console.log('✅ MongoDB connected successfully');
     return true;
   } catch (err) {
     console.error('❌ MongoDB connection error:', err.message);
     
-    if (err.name === 'MongoServerError') {
-      console.log('🔐 Authentication failed. Please check:');
-      console.log('- Password is correct and URL encoded');
-      console.log('- User has proper permissions in Atlas');
-    } else if (err.message.includes('ECONNREFUSED') || err.message.includes('ENOTFOUND')) {
-      console.log('🌐 Network connection error. Check:');
-      console.log('- IP is whitelisted in Atlas');
-      console.log('- No firewall blocking connections');
-      console.log('- Correct connection string format');
+    if (attempt < 3) {
+      console.log(`🔄 Retrying in 5 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      return connectWithRetry(attempt + 1);
     }
     
+    console.error('💥 Failed to connect after 3 attempts');
     return false;
   }
 };
@@ -892,17 +886,29 @@ app.use((err, req, res, next) => {
 // ==================== SERVER STARTUP ====================
 const startServer = async () => {
   try {
-    const dbConnected = await connectDB();
+    const dbConnected = await connectWithRetry();
     if (!dbConnected) {
-      throw new Error('Failed to connect to database');
+      throw new Error('Failed to connect to database after retries');
     }
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 MongoDB state: ${mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'}`);
     });
+
+    // Graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('🛑 SIGTERM received. Shutting down gracefully...');
+      server.close(() => {
+        mongoose.connection.close(false, () => {
+          console.log('🚪 Server and MongoDB connection closed');
+          process.exit(0);
+        });
+      });
+    });
+
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('🚨 Failed to start server:', error);
     process.exit(1);
   }
 };
