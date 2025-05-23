@@ -924,6 +924,30 @@ const mongooseOptions = {
   heartbeatFrequencyMS: 10000
 };
 
+// Connection function that can be called for initial connection and reconnections
+async function connectDB() {
+  try {
+    console.log('⌛ Attempting MongoDB connection...');
+    console.log(`Connecting to: ${process.env.MONGODB_URI?.replace(/:[^@]+@/, ':********@')}`);
+    
+    await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
+    console.log('✅ MongoDB connected successfully');
+
+    // Verify connection
+    if (!await testDatabaseConnection()) {
+      throw new Error('Database verification failed');
+    }
+
+    // Initialize admin if needed
+    await initializeAdmin();
+    
+    return true;
+  } catch (err) {
+    console.error('❌ MongoDB connection failed:', err.message);
+    return false;
+  }
+}
+
 // Add this admin initialization function
 async function initializeAdmin() {
   try {
@@ -972,20 +996,10 @@ async function testDatabaseConnection() {
 
 async function startServer() {
   try {
-    console.log('⌛ Attempting MongoDB connection...');
-    console.log(`Connecting to: ${process.env.MONGODB_URI?.replace(/:[^@]+@/, ':********@')}`);
-    
-    // Establish connection
-    await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
-    console.log('✅ MongoDB connected successfully');
-
-    // Verify connection
-    if (!await testDatabaseConnection()) {
-      throw new Error('Database verification failed');
+    // First attempt to connect
+    if (!await connectDB()) {
+      throw new Error('Initial database connection failed');
     }
-
-    // Initialize admin
-    await initializeAdmin();
 
     // Start server
     const server = app.listen(PORT, '0.0.0.0', () => {
@@ -1021,11 +1035,17 @@ mongoose.connection.on('connected', () => {
 });
 
 mongoose.connection.on('disconnected', () => {
-  console.warn('⚠️ MongoDB disconnected');
+  console.warn('⚠️ MongoDB disconnected - attempting to reconnect in 5 seconds...');
+  setTimeout(connectDB, 5000);
 });
 
 mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err);
+  // For certain errors, you might want to attempt reconnection immediately
+  if (err.name === 'MongoNetworkError') {
+    console.log('🔄 Network error detected - attempting reconnect...');
+    setTimeout(connectDB, 1000);
+  }
 });
 
 // Start the server
