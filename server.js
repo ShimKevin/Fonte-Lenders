@@ -22,7 +22,6 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 app.use(cors({
   origin: [
-    'https://fontelenders.vercel.app',
     'http://localhost:3000'
   ],
   credentials: true,
@@ -911,40 +910,63 @@ function generateCustomerConfirmationEmail(customer, application, verification) 
   `;
 }
 
-// ==================== SERVER INITIALIZATION ====================
-const PORT = process.env.PORT || 3000;
-
-// Enhanced MongoDB connection configuration
+// ==================== MONGODB CONNECTION ====================
 const mongooseOptions = {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000,
+  serverSelectionTimeoutMS: 10000,
   socketTimeoutMS: 45000,
+  connectTimeoutMS: 30000,
   retryWrites: true,
+  retryReads: true,
   w: 'majority',
-  maxPoolSize: 10,
-  heartbeatFrequencyMS: 10000,
-  connectTimeoutMS: 10000
+  maxPoolSize: 15,
+  heartbeatFrequencyMS: 10000
 };
 
+// Add this admin initialization function
 async function initializeAdmin() {
   try {
-    const adminCount = await Admin.countDocuments();
+    const adminCount = await mongoose.connection.db.collection('admins').countDocuments();
     if (adminCount === 0 && process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
-      const admin = new Admin({
+      const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
+      await mongoose.connection.db.collection('admins').insertOne({
         username: process.env.ADMIN_USERNAME,
-        password: process.env.ADMIN_PASSWORD,
-        role: 'superadmin'
+        password: hashedPassword,
+        role: 'superadmin',
+        createdAt: new Date(),
+        updatedAt: new Date()
       });
-      await admin.save();
       console.log('✅ Initial admin account created');
-    } else if (adminCount > 0) {
-      console.log('ℹ️ Admin account already exists');
-    } else {
-      console.log('⚠️ No admin credentials provided in .env');
     }
   } catch (err) {
     console.error('❌ Admin initialization error:', err);
+  }
+}
+
+async function testDatabaseConnection() {
+  try {
+    // Wait for connection to be established
+    await new Promise(resolve => mongoose.connection.once('connected', resolve));
+    
+    // Verify connection with a ping command
+    const pingResult = await mongoose.connection.db.command({ ping: 1 });
+    console.log('🗄️ Database ping successful:', pingResult.ok === 1 ? 'OK' : 'Failed');
+    return pingResult.ok === 1;
+  } catch (err) {
+    console.error('❌ Database verification failed:', err);
+    
+    if (err.name === 'MongoServerError') {
+      console.log('🔐 Authentication failed. Please check:');
+      console.log('- Password is correct and URL encoded');
+      console.log('- User has proper permissions in Atlas');
+    } else if (err.message.includes('ECONNREFUSED')) {
+      console.log('🌐 Network connection refused. Check:');
+      console.log('- IP is whitelisted in Atlas');
+      console.log('- No firewall blocking connections');
+    }
+    
+    return false;
   }
 }
 
@@ -953,18 +975,21 @@ async function startServer() {
     console.log('⌛ Attempting MongoDB connection...');
     console.log(`Connecting to: ${process.env.MONGODB_URI?.replace(/:[^@]+@/, ':********@')}`);
     
+    // Establish connection
     await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
-    
     console.log('✅ MongoDB connected successfully');
-    await mongoose.connection.db.admin().ping();
-    console.log('🗄️ Database ping successful');
 
+    // Verify connection
+    if (!await testDatabaseConnection()) {
+      throw new Error('Database verification failed');
+    }
+
+    // Initialize admin
     await initializeAdmin();
 
-    // Start server only after DB is connected
+    // Start server
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
-      console.log('🌐 Network access:', '0.0.0.0 means accessible from any network');
     });
 
     server.on('error', (err) => {
@@ -972,15 +997,20 @@ async function startServer() {
       process.exit(1);
     });
 
-  } catch (err) {
-    console.error('❌ Fatal startup error:', err);
-    console.error('Error details:', {
-      name: err.name,
-      message: err.message,
-      code: err.code,
-      codeName: err.codeName,
-      stack: err.stack
+    // Graceful shutdown
+    process.on('SIGINT', async () => {
+      console.log('\n🛑 Received shutdown signal');
+      await mongoose.connection.close();
+      console.log('⏏️ MongoDB connection closed');
+      server.close(() => {
+        console.log('🚪 HTTP server closed');
+        process.exit(0);
+      });
     });
+
+  } catch (err) {
+    console.error('❌ Fatal startup error:', err.message);
+    console.error('Stack trace:', err.stack);
     process.exit(1);
   }
 }
@@ -994,22 +1024,8 @@ mongoose.connection.on('disconnected', () => {
   console.warn('⚠️ MongoDB disconnected');
 });
 
-mongoose.connection.on('reconnected', () => {
-  console.log('🔁 MongoDB reconnected');
-});
-
 mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err);
-});
-
-// Process error handling
-process.on('unhandledRejection', (err) => {
-  console.error('⚠️ Unhandled Rejection:', err);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('💥 Uncaught Exception:', err);
-  process.exit(1);
 });
 
 // Start the server
