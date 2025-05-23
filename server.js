@@ -914,6 +914,19 @@ function generateCustomerConfirmationEmail(customer, application, verification) 
 // ==================== SERVER INITIALIZATION ====================
 const PORT = process.env.PORT || 3000;
 
+// Enhanced MongoDB connection configuration
+const mongooseOptions = {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  retryWrites: true,
+  w: 'majority',
+  maxPoolSize: 10,
+  heartbeatFrequencyMS: 10000,
+  connectTimeoutMS: 10000
+};
+
 async function initializeAdmin() {
   try {
     const adminCount = await Admin.countDocuments();
@@ -937,71 +950,67 @@ async function initializeAdmin() {
 
 async function startServer() {
   try {
-    await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-      retryWrites: true,
-      retryReads: true,
-      socketTimeoutMS: 30000,
-      connectTimeoutMS: 10000,
-      maxPoolSize: 10
+    console.log('⌛ Attempting MongoDB connection...');
+    console.log(`Connecting to: ${process.env.MONGODB_URI?.replace(/:[^@]+@/, ':********@')}`);
+    
+    await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
+    
+    console.log('✅ MongoDB connected successfully');
+    await mongoose.connection.db.admin().ping();
+    console.log('🗄️ Database ping successful');
+
+    await initializeAdmin();
+
+    // Start server only after DB is connected
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Server running on http://localhost:${PORT}`);
+      console.log('🌐 Network access:', '0.0.0.0 means accessible from any network');
     });
 
-    mongoose.connection.on('connected', async () => {
-      console.log('✅ MongoDB connected securely');
-      
-      try {
-        await mongoose.connection.db.admin().ping();
-        console.log('🗄️ Database ping successful');
-        
-        await initializeAdmin();
-
-        app.get('/', (req, res) => {
-          res.sendFile(path.join(__dirname, 'public', 'index.html'), (err) => {
-            if (err) {
-              console.error('Error serving index.html:', err);
-              res.status(404).json({
-                success: false,
-                message: 'Page not found',
-                code: 'PAGE_NOT_FOUND'
-              });
-            }
-          });
-        });
-
-        const server = app.listen(PORT, '0.0.0.0', () => {
-          console.log(`🚀 Server running on http://localhost:${PORT}`);
-        });
-
-        server.on('error', (err) => {
-          console.error('Server error:', err);
-          process.exit(1);
-        });
-
-      } catch (err) {
-        console.error('❌ Database verification failed:', err);
-        process.exit(1);
-      }
-    });
-
-    mongoose.connection.on('error', err => {
-      console.error('❌ MongoDB connection error:', err);
+    server.on('error', (err) => {
+      console.error('❌ Server error:', err);
       process.exit(1);
     });
 
   } catch (err) {
-    console.error('❌ Startup failed:', err);
+    console.error('❌ Fatal startup error:', err);
+    console.error('Error details:', {
+      name: err.name,
+      message: err.message,
+      code: err.code,
+      codeName: err.codeName,
+      stack: err.stack
+    });
     process.exit(1);
   }
 }
 
-startServer();
+// MongoDB connection event listeners
+mongoose.connection.on('connected', () => {
+  console.log('📊 MongoDB connection established');
+});
 
-// Error handling
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️ MongoDB disconnected');
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('🔁 MongoDB reconnected');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err);
+});
+
+// Process error handling
 process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Rejection:', err);
+  console.error('⚠️ Unhandled Rejection:', err);
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
+  console.error('💥 Uncaught Exception:', err);
   process.exit(1);
 });
+
+// Start the server
+startServer();
