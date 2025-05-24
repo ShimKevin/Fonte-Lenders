@@ -180,9 +180,43 @@
             width: 100%;
         }
 
+        /* Password toggle button styles */
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 38px;
+            cursor: pointer;
+            color: rgba(255, 215, 0, 0.5);
+            transition: all 0.3s;
+            background: none;
+            border: none;
+            font-size: 18px;
+        }
+
+        .password-toggle:hover {
+            color: var(--gold);
+            transform: scale(1.1);
+        }
+
+        /* Animation styles */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(76, 175, 80, 0); }
+        }
+
+        .shake-animation { animation: shake 0.5s ease-in-out; }
+        .success-pulse { animation: pulse 0.5s ease-out; }
+
         @media (max-width: 600px) {
             .frame { padding: 20px; }
             input, select, textarea { padding: 10px; font-size: 14px; }
+            .password-toggle { top: 34px; }
         }
     </style>
 </head>
@@ -234,12 +268,14 @@
             <div class="form-group">
                 <label for="password">Password</label>
                 <input type="password" id="password" required minlength="6" placeholder="Create a password (min 6 characters)">
+                <button type="button" class="password-toggle" id="togglePassword">👁️</button>
                 <div class="error-message" id="password-error">Password must be at least 6 characters</div>
             </div>
 
             <div class="form-group">
                 <label for="confirmPassword">Confirm Password</label>
                 <input type="password" id="confirmPassword" required placeholder="Confirm your password">
+                <button type="button" class="password-toggle" id="toggleConfirmPassword">👁️</button>
                 <div class="error-message" id="confirmPassword-error">Passwords do not match</div>
             </div>
 
@@ -268,117 +304,195 @@
             if (!isValid) {
                 errorElement.style.display = 'block';
                 field.style.borderColor = 'var(--error)';
+                field.classList.add('shake-animation');
+                setTimeout(() => field.classList.remove('shake-animation'), 500);
                 return false;
             } else {
                 errorElement.style.display = 'none';
                 field.style.borderColor = 'rgba(255, 215, 0, 0.3)';
+                field.classList.add('success-pulse');
+                setTimeout(() => field.classList.remove('success-pulse'), 300);
                 return true;
             }
         }
 
-        // Setup event listeners
-        document.getElementById('modal-close-btn').addEventListener('click', function() {
-            document.getElementById('verification-modal').style.display = 'none';
-        });
-
-        document.getElementById('fullName').addEventListener('blur', function() {
-            validateField(this, 'fullName-error', value => value.trim().length >= 3);
-        });
-
-        document.getElementById('idNumber').addEventListener('blur', function() {
-            validateField(this, 'idNumber-error', value => /^\d{8}$/.test(value));
-        });
-
-        document.getElementById('phone').addEventListener('blur', function() {
-            validateField(this, 'phone-error', value => /^\d{10}$/.test(value));
-        });
-
-        document.getElementById('email').addEventListener('blur', function() {
-            validateField(this, 'email-error', value => value === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
-        });
-
-        document.getElementById('password').addEventListener('blur', function() {
-            validateField(this, 'password-error', value => value.length >= 6);
-        });
-
-        document.getElementById('confirmPassword').addEventListener('blur', function() {
-            const password = document.getElementById('password').value;
-            validateField(this, 'confirmPassword-error', value => value === password);
-        });
-
-        document.getElementById('registrationForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
+        // Password toggle functionality
+        function setupPasswordToggle(passwordFieldId, toggleButtonId) {
+            const passwordField = document.getElementById(passwordFieldId);
+            const toggleButton = document.getElementById(toggleButtonId);
             
-            // Validate all fields
-            const fields = [
-                ['fullName', 'fullName-error', val => val.trim().length >= 3],
-                ['idNumber', 'idNumber-error', val => /^\d{8}$/.test(val)],
-                ['phone', 'phone-error', val => /^\d{10}$/.test(val)],
-                ['email', 'email-error', val => val === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)],
-                ['password', 'password-error', val => val.length >= 6],
-                ['confirmPassword', 'confirmPassword-error', val => val === document.getElementById('password').value]
-            ];
+            toggleButton.addEventListener('click', function() {
+                const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordField.setAttribute('type', type);
+                toggleButton.textContent = type === 'password' ? '👁️' : '🔒';
+                toggleButton.title = type === 'password' ? 'Show password' : 'Hide password';
+            });
+        }
 
-            const isValid = fields.every(([id, errorId, fn]) => validateField(document.getElementById(id), errorId, fn));
+        // Setup event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Password toggle buttons
+            setupPasswordToggle('password', 'togglePassword');
+            setupPasswordToggle('confirmPassword', 'toggleConfirmPassword');
 
-            if (!isValid) return;
+            // Modal close button
+            document.getElementById('modal-close-btn').addEventListener('click', function() {
+                document.getElementById('verification-modal').style.display = 'none';
+            });
 
-            // Show loading state
-            document.getElementById('submitBtn').disabled = true;
-            document.getElementById('spinner').style.display = 'inline-block';
-            document.getElementById('btnText').textContent = 'Processing...';
+            // Field validations
+            document.getElementById('fullName').addEventListener('input', function() {
+                validateField(this, 'fullName-error', value => value.trim().length >= 3);
+            });
 
-            try {
-                // Prepare registration data
-                const formData = {
-                    fullName: document.getElementById('fullName').value.trim(),
-                    idNumber: document.getElementById('idNumber').value,
-                    phone: document.getElementById('phone').value,
-                    email: document.getElementById('email').value || null,
-                    password: document.getElementById('password').value
-                };
+            document.getElementById('idNumber').addEventListener('input', function() {
+                validateField(this, 'idNumber-error', value => /^\d{8}$/.test(value));
+            });
 
-                // Send registration data to server
-                const response = await fetch('/api/register', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(formData)
-                });
+            document.getElementById('phone').addEventListener('input', function() {
+                validateField(this, 'phone-error', value => /^\d{10}$/.test(value));
+            });
 
-                const data = await response.json();
+            document.getElementById('email').addEventListener('input', function() {
+                validateField(this, 'email-error', value => value === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
+            });
 
-                if (!response.ok) {
-                    throw new Error(data.message || 'Registration failed');
+            document.getElementById('password').addEventListener('input', function() {
+                validateField(this, 'password-error', value => value.length >= 6);
+                // Also validate confirm password when password changes
+                const confirmPassword = document.getElementById('confirmPassword');
+                if (confirmPassword.value) {
+                    validateField(confirmPassword, 'confirmPassword-error', 
+                        val => val === this.value);
                 }
+            });
 
-                // Store user data and token in localStorage
-                localStorage.setItem('authToken', data.token);
-                localStorage.setItem('userData', JSON.stringify(data.user));
+            document.getElementById('confirmPassword').addEventListener('input', function() {
+                validateField(this, 'confirmPassword-error', 
+                    value => value === document.getElementById('password').value);
+            });
 
-                // Show success message
-                document.getElementById('registrationForm').style.display = 'none';
-                document.getElementById('confirmation').style.display = 'block';
+            // Form submission
+            document.getElementById('registrationForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
                 
-                // Redirect to index page after 3 seconds
-                setTimeout(() => {
-                    window.location.href = 'index.html';
-                }, 3000);
+                // Clear previous errors
+                document.querySelectorAll('.error-message').forEach(el => {
+                    el.style.display = 'none';
+                });
                 
-            } catch (error) {
-                console.error('Registration error:', error);
-                
-                // Show error in modal
-                const modal = document.getElementById('verification-modal');
-                document.getElementById('verification-message').textContent = 
-                    error.message || 'Registration failed. Please check your details and try again.';
-                modal.style.display = 'flex';
-                
-                // Reset loading state
+                // Validate all fields
+                const fields = [
+                    ['fullName', 'fullName-error', val => val.trim().length >= 3],
+                    ['idNumber', 'idNumber-error', val => /^\d{8}$/.test(val)],
+                    ['phone', 'phone-error', val => /^\d{10}$/.test(val)],
+                    ['email', 'email-error', val => val === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)],
+                    ['password', 'password-error', val => val.length >= 6],
+                    ['confirmPassword', 'confirmPassword-error', val => val === document.getElementById('password').value]
+                ];
+
+                const isValid = fields.every(([id, errorId, fn]) => 
+                    validateField(document.getElementById(id), errorId, fn));
+
+                if (!isValid) return;
+
+                // Show loading state
+                document.getElementById('submitBtn').disabled = true;
+                document.getElementById('spinner').style.display = 'inline-block';
+                document.getElementById('btnText').textContent = 'Processing...';
+                document.getElementById('submitBtn').style.background = 'linear-gradient(to right, #FFD700, #D4AF37, #FFD700)';
+                document.getElementById('submitBtn').style.backgroundSize = '200% auto';
+                document.getElementById('submitBtn').style.animation = 'gradientFlow 2s linear infinite';
+
+                try {
+                    // Prepare registration data
+                    const formData = {
+                        fullName: document.getElementById('fullName').value.trim(),
+                        idNumber: document.getElementById('idNumber').value,
+                        phone: document.getElementById('phone').value,
+                        email: document.getElementById('email').value || null,
+                        password: document.getElementById('password').value
+                    };
+
+                    // Send registration data to server
+                    const response = await fetch('/api/register', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(formData)
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.message || 'Registration failed');
+                    }
+
+                    // Success animation
+                    document.getElementById('registrationForm').style.opacity = '0';
+                    document.getElementById('registrationForm').style.transform = 'translateY(-20px)';
+                    document.getElementById('registrationForm').style.transition = 'all 0.5s ease';
+                    
+                    setTimeout(() => {
+                        // Store user data and token in localStorage
+                        localStorage.setItem('authToken', data.token);
+                        localStorage.setItem('userData', JSON.stringify(data.user));
+                        localStorage.setItem('refreshToken', data.refreshToken);
+
+                        // Show success message
+                        document.getElementById('registrationForm').style.display = 'none';
+                        document.getElementById('confirmation').style.display = 'block';
+                        document.getElementById('confirmation').style.opacity = '0';
+                        document.getElementById('confirmation').style.transform = 'translateY(20px)';
+                        
+                        setTimeout(() => {
+                            document.getElementById('confirmation').style.opacity = '1';
+                            document.getElementById('confirmation').style.transform = 'translateY(0)';
+                        }, 50);
+                        
+                        // Redirect to login page after 2 seconds
+                        setTimeout(() => {
+                            window.location.href = 'login.html';
+                        }, 2000);
+                    }, 500);
+                    
+                } catch (error) {
+                    console.error('Registration error:', error);
+                    
+                    // Error animation
+                    document.getElementById('registrationForm').classList.add('shake-animation');
+                    setTimeout(() => {
+                        document.getElementById('registrationForm').classList.remove('shake-animation');
+                    }, 500);
+                    
+                    // Show error in modal
+                    const modal = document.getElementById('verification-modal');
+                    modal.style.opacity = '0';
+                    modal.style.transform = 'scale(0.9)';
+                    modal.style.display = 'flex';
+                    
+                    document.getElementById('verification-message').textContent = 
+                        error.message || 'Registration failed. Please check your details and try again.';
+                    
+                    setTimeout(() => {
+                        modal.style.opacity = '1';
+                        modal.style.transform = 'scale(1)';
+                        modal.style.transition = 'all 0.3s ease';
+                    }, 50);
+                    
+                    // Reset button state
+                    resetButtonState();
+                }
+            });
+
+            // Helper function to reset button state
+            function resetButtonState() {
                 document.getElementById('submitBtn').disabled = false;
                 document.getElementById('spinner').style.display = 'none';
                 document.getElementById('btnText').textContent = 'REGISTER';
+                document.getElementById('submitBtn').style.background = 'linear-gradient(to right, #FFD700, #D4AF37)';
+                document.getElementById('submitBtn').style.animation = 'none';
             }
         });
     </script>
