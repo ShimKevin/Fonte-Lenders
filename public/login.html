@@ -239,7 +239,7 @@
     </div>
 
 <script>
-    // Form validation
+    // Form validation with visual feedback
     function validateField(field, errorId, validationFn) {
         const errorElement = document.getElementById(errorId);
         const isValid = validationFn(field.value);
@@ -247,28 +247,65 @@
         if (!isValid) {
             errorElement.style.display = 'block';
             field.style.borderColor = 'var(--error)';
+            field.classList.add('shake-animation');
+            setTimeout(() => field.classList.remove('shake-animation'), 500);
             return false;
         } else {
             errorElement.style.display = 'none';
             field.style.borderColor = 'rgba(255, 215, 0, 0.3)';
+            field.classList.add('success-pulse');
+            setTimeout(() => field.classList.remove('success-pulse'), 300);
             return true;
         }
     }
 
-    // Field validations
-    document.getElementById('phone').addEventListener('blur', function() {
+    // Add some dynamic styles for visual feedback
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(76, 175, 80, 0); }
+        }
+        .shake-animation { animation: shake 0.5s ease-in-out; }
+        .success-pulse { animation: pulse 0.5s ease-out; }
+        .confirmation { 
+            animation: fadeIn 0.5s ease-out, pulse 2s infinite;
+            border: 1px solid var(--gold);
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    `;
+    document.head.appendChild(style);
+
+    // Field validations with real-time feedback
+    document.getElementById('phone').addEventListener('input', function() {
         validateField(this, 'phone-error', value => /^\d{10}$/.test(value));
     });
 
-    document.getElementById('password').addEventListener('blur', function() {
+    document.getElementById('password').addEventListener('input', function() {
         validateField(this, 'password-error', value => value.length >= 8);
     });
 
-    // Form submission
+    // Enhanced form submission with visual transitions
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        // Validate all fields
+        // Clear previous errors and visual states
+        document.querySelectorAll('.error-message').forEach(el => {
+            el.style.display = 'none';
+        });
+        document.querySelectorAll('input').forEach(input => {
+            input.classList.remove('shake-animation', 'success-pulse');
+        });
+        
+        // Validate all fields with visual feedback
         const isPhoneValid = validateField(
             document.getElementById('phone'), 
             'phone-error', 
@@ -285,12 +322,15 @@
             return;
         }
         
-        // Show loading state
-        document.getElementById('btnText').textContent = 'Logging in...';
+        // Show elegant loading state
+        document.getElementById('btnText').textContent = 'Authenticating...';
         document.getElementById('spinner').style.display = 'block';
+        document.getElementById('submitBtn').style.background = 'linear-gradient(to right, #FFD700, #D4AF37, #FFD700)';
+        document.getElementById('submitBtn').style.backgroundSize = '200% auto';
+        document.getElementById('submitBtn').style.animation = 'gradientFlow 2s linear infinite';
         document.getElementById('submitBtn').disabled = true;
         
-        // Prepare login data - normalize phone number
+        // Prepare login data
         const phone = document.getElementById('phone').value.replace(/\D/g, '');
         const formData = {
             phone: phone,
@@ -298,64 +338,150 @@
         };
         
         try {
-            // Make API call to backend
+            // Make API call with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
             const response = await fetch('/api/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(formData)
+                body: JSON.stringify(formData),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.message || 'Login failed. Please check your credentials and try again.');
+                // Handle specific error codes with custom messages
+                let errorMsg = 'Login failed. Please try again.';
+                if (data.code === 'TOO_MANY_REQUESTS') {
+                    errorMsg = 'Too many attempts. Please wait 30 seconds.';
+                } else if (data.code === 'INVALID_CREDENTIALS') {
+                    errorMsg = 'Invalid credentials. Please check your details.';
+                } else if (data.message) {
+                    errorMsg = data.message;
+                }
+                throw new Error(errorMsg);
             }
 
-            // Store the token and user data
-            localStorage.setItem('authToken', data.token);
-            localStorage.setItem('userData', JSON.stringify(data.user));
-
-            // Show success message
-            document.getElementById('loginForm').style.display = 'none';
-            document.getElementById('confirmation').style.display = 'block';
+            // Success animation sequence
+            document.getElementById('loginForm').style.opacity = '0';
+            document.getElementById('loginForm').style.transform = 'translateY(-20px)';
+            document.getElementById('loginForm').style.transition = 'all 0.5s ease';
             
-            // Redirect to dashboard after 2 seconds
             setTimeout(() => {
-                window.location.href = 'dashboard.html';
-            }, 2000);
+                // Store tokens securely
+                localStorage.setItem('authToken', data.token);
+                localStorage.setItem('userData', JSON.stringify(data.user));
+                localStorage.setItem('refreshToken', data.refreshToken);
+
+                // Show success animation
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('confirmation').style.display = 'block';
+                document.getElementById('confirmation').style.opacity = '0';
+                document.getElementById('confirmation').style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    document.getElementById('confirmation').style.opacity = '1';
+                    document.getElementById('confirmation').style.transform = 'translateY(0)';
+                }, 50);
+                
+                // Reset button state
+                resetButtonState();
+                
+                // Redirect to dashboard
+                setTimeout(() => {
+                    window.location.href = 'dashboard.html';
+                }, 2000);
+            }, 500);
             
         } catch (error) {
             console.error('Login error:', error);
             
-            const modal = document.getElementById('verification-modal');
-            const errorMessage = error.message.includes('credentials') 
-                ? 'The phone number or password you entered is incorrect' 
-                : error.message || 'Login failed. Please try again.';
+            // Error animation
+            document.getElementById('loginForm').classList.add('shake-animation');
+            setTimeout(() => {
+                document.getElementById('loginForm').classList.remove('shake-animation');
+            }, 500);
             
-            document.getElementById('verification-message').textContent = errorMessage;
+            // Show error modal with animation
+            const modal = document.getElementById('verification-modal');
+            modal.style.opacity = '0';
+            modal.style.transform = 'scale(0.9)';
             modal.style.display = 'flex';
             
-            // Reset loading state
-            document.getElementById('btnText').textContent = 'LOGIN';
-            document.getElementById('spinner').style.display = 'none';
-            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('verification-message').textContent = 
+                error.name === 'AbortError' 
+                ? 'Request timed out. Please check your connection.' 
+                : error.message || 'Login failed. Please try again.';
+            
+            setTimeout(() => {
+                modal.style.opacity = '1';
+                modal.style.transform = 'scale(1)';
+                modal.style.transition = 'all 0.3s ease';
+            }, 50);
+            
+            // Reset button state
+            resetButtonState();
         }
     });
 
-    // Allow login on Enter key press
-    document.getElementById('password').addEventListener('keyup', function(event) {
-        if (event.key === 'Enter') {
-            document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+    // Helper function to reset button state
+    function resetButtonState() {
+        document.getElementById('btnText').textContent = 'LOGIN';
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('submitBtn').style.background = 'linear-gradient(to right, #FFD700, #D4AF37)';
+        document.getElementById('submitBtn').style.animation = 'none';
+        document.getElementById('submitBtn').disabled = false;
+    }
+
+    // Password visibility toggle
+    const passwordToggle = document.createElement('span');
+    passwordToggle.innerHTML = '👁️';
+    passwordToggle.style.position = 'absolute';
+    passwordToggle.style.right = '15px';
+    passwordToggle.style.top = '42px';
+    passwordToggle.style.cursor = 'pointer';
+    passwordToggle.style.opacity = '0.7';
+    passwordToggle.style.transition = 'all 0.3s';
+    passwordToggle.addEventListener('mouseenter', () => {
+        passwordToggle.style.transform = 'scale(1.2)';
+        passwordToggle.style.opacity = '1';
+    });
+    passwordToggle.addEventListener('mouseleave', () => {
+        passwordToggle.style.transform = 'scale(1)';
+        passwordToggle.style.opacity = '0.7';
+    });
+    passwordToggle.addEventListener('click', () => {
+        const passwordInput = document.getElementById('password');
+        if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            passwordToggle.innerHTML = '👁️';
+            passwordToggle.style.color = 'var(--gold)';
+        } else {
+            passwordInput.type = 'password';
+            passwordToggle.innerHTML = '👁️';
+            passwordToggle.style.color = '';
         }
     });
+    document.querySelector('.form-group:nth-child(2)').style.position = 'relative';
+    document.querySelector('.form-group:nth-child(2)').appendChild(passwordToggle);
+
+    // Auto-focus on phone field
+    document.getElementById('phone').focus();
 
     // Check for existing token and redirect if already logged in
     document.addEventListener('DOMContentLoaded', () => {
         const token = localStorage.getItem('authToken');
         if (token) {
-            // Verify token is still valid
+            // Show loading indicator
+            document.getElementById('loginForm').style.opacity = '0.5';
+            document.getElementById('spinner').style.display = 'block';
+            document.getElementById('btnText').textContent = 'Checking session...';
+            
             fetch('/api/validate-token', {
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -363,15 +489,28 @@
             })
             .then(response => {
                 if (response.ok) {
-                    window.location.href = 'index.html';
+                    // Smooth redirect to dashboard
+                    document.getElementById('loginForm').style.opacity = '0';
+                    document.getElementById('loginForm').style.transform = 'translateY(-20px)';
+                    document.getElementById('confirmation').style.display = 'block';
+                    document.getElementById('confirmation').style.opacity = '0';
+                    
+                    setTimeout(() => {
+                        document.getElementById('confirmation').style.opacity = '1';
+                        document.getElementById('confirmation').style.transform = 'translateY(0)';
+                        setTimeout(() => {
+                            window.location.href = 'dashboard.html';
+                        }, 1000);
+                    }, 300);
                 } else {
-                    localStorage.removeItem('authToken');
-                    localStorage.removeItem('userData');
+                    // Clear invalid tokens
+                    localStorage.clear();
+                    resetButtonState();
                 }
             })
             .catch(() => {
-                localStorage.removeItem('authToken');
-                localStorage.removeItem('userData');
+                localStorage.clear();
+                resetButtonState();
             });
         }
     });

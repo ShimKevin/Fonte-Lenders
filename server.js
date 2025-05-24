@@ -47,6 +47,111 @@ const connectWithRetry = async (attempt = 1) => {
   }
 };
 
+// ==================== JENGA API INTEGRATION ====================
+const JENGA_API_KEY = process.env.JENGA_API_KEY;
+const JENGA_API_URL = process.env.JENGA_API_URL || 'https://sandbox.jengahq.io';
+
+async function verifyIDWithJenga(idNumber, fullName) {
+  try {
+    // First check if we're in development mode and should use mock verification
+    if (process.env.NODE_ENV === 'development' && process.env.USE_MOCK_VERIFICATION === 'true') {
+      console.log('Using mock ID verification for development');
+      return {
+        success: true,
+        verifiedBy: 'mock',
+        message: 'Mock verification successful',
+        timestamp: new Date().toISOString()
+      };
+    }
+
+    if (!JENGA_API_KEY) {
+      console.error('Jenga API key not configured');
+      throw new Error('Jenga API key not configured');
+    }
+
+    // Verify the domain is reachable first
+    try {
+      await axios.head(JENGA_API_URL, { timeout: 5000 });
+    } catch (reachabilityError) {
+      console.error('Jenga API endpoint not reachable:', reachabilityError.message);
+      if (process.env.ENABLE_FALLBACK_VERIFICATION === 'true') {
+        return {
+          success: true,
+          verifiedBy: 'fallback',
+          message: 'Verification pending manual review (API unreachable)',
+          fallback: true,
+          timestamp: new Date().toISOString()
+        };
+      }
+      throw new Error('Jenga API endpoint not reachable');
+    }
+
+    const response = await axios.post(
+      `${JENGA_API_URL}/identity/v2/verify`,
+      {
+        idNumber: idNumber,
+        fullName: fullName
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${JENGA_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000 // 10 second timeout
+      }
+    );
+
+    if (response.data && response.data.success) {
+      return {
+        success: true,
+        verifiedBy: 'jenga',
+        message: 'Verification successful',
+        timestamp: response.data.timestamp,
+        rawResponse: response.data
+      };
+    } else {
+      return {
+        success: false,
+        verifiedBy: 'jenga',
+        message: response.data?.message || 'Verification failed',
+        timestamp: new Date().toISOString(),
+        rawResponse: response.data
+      };
+    }
+  } catch (error) {
+    console.error('Jenga verification error:', error.message);
+    
+    // Enhanced error handling
+    if (error.code === 'ENOTFOUND') {
+      console.error('DNS resolution failed for Jenga API endpoint');
+      if (process.env.ENABLE_FALLBACK_VERIFICATION === 'true') {
+        return {
+          success: true,
+          verifiedBy: 'fallback',
+          message: 'Verification pending manual review (DNS resolution failed)',
+          fallback: true,
+          timestamp: new Date().toISOString()
+        };
+      }
+      throw new Error('Jenga API endpoint could not be resolved');
+    }
+    
+    // Fallback verification for other errors
+    if (process.env.ENABLE_FALLBACK_VERIFICATION === 'true') {
+      console.log('Attempting fallback verification...');
+      return {
+        success: true, // Mark as success but flag as fallback
+        verifiedBy: 'fallback',
+        message: 'Verification pending manual review',
+        fallback: true,
+        timestamp: new Date().toISOString()
+      };
+    }
+    
+    throw error; // Re-throw if no fallback is enabled
+  }
+}
+
 // ==================== CONFIGURATION ====================
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -73,6 +178,215 @@ app.use((req, res, next) => {
   };
   next();
 });
+
+// ==================== MIDDLEWARE ====================
+const loginAttempts = new Map();
+
+// Enhanced rate limiting middleware for login attempts
+const loginRateLimiter = (req, res, next) => {
+  if (req.path === '/api/login' && req.method === 'POST') {
+    const key = `${req.ip}-${req.body.phone}`;
+    const now = Date.now();
+    
+    if (loginAttempts.has(key)) {
+      const lastAttempt = loginAttempts.get(key);
+      if (now - lastAttempt < 2000) { // 2 second cooldown
+        return res.status(429).json({
+          success: false,
+          code: 'TOO_MANY_REQUESTS',
+          redirect: '/login?error=rate_limit'
+        });
+      }
+    }
+    
+    loginAttempts.set(key, now);
+    setTimeout(() => loginAttempts.delete(key), 2000);
+  }
+  next();
+};
+
+// Silent authentication middleware (for optional auth routes)
+const silentAuth = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      req.authFailed = true;
+      return next();
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await Customer.findById(decoded.id).select('-password').lean();
+    
+    if (!user) {
+      req.authFailed = true;
+      return next();
+    }
+
+    // Check token expiration (7 days)
+    if (decoded.iat < Math.floor(Date.now() / 1000) - (60 * 60 * 24 * 7)) {
+      req.authFailed = true;
+      return next();
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    req.authFailed = true;
+    next();
+  }
+};
+
+// Main authentication middleware (for protected routes)
+const authenticate = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        code: 'NO_TOKEN',
+        redirect: '/login?error=no_token'
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await Customer.findById(decoded.id).select('-password').lean();
+    
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        code: 'USER_NOT_FOUND',
+        redirect: '/login?error=user_not_found'
+      });
+    }
+
+    // Check token expiration (7 days)
+    if (decoded.iat < Math.floor(Date.now() / 1000) - (60 * 60 * 24 * 7)) {
+      return res.status(401).json({
+        success: false,
+        code: 'SESSION_EXPIRED',
+        redirect: '/login?error=session_expired'
+      });
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    console.error('Authentication error:', error);
+    
+    let errorResponse = {
+      success: false,
+      code: 'AUTH_FAILED',
+      redirect: '/login?error=auth_failed'
+    };
+
+    if (error.name === 'TokenExpiredError') {
+      errorResponse.code = 'TOKEN_EXPIRED';
+      errorResponse.redirect = '/login?error=token_expired';
+    } else if (error.name === 'JsonWebTokenError') {
+      errorResponse.code = 'INVALID_TOKEN';
+      errorResponse.redirect = '/login?error=invalid_token';
+    }
+
+    return res.status(401).json(errorResponse);
+  }
+};
+
+// Admin authentication middleware
+const authenticateAdmin = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        code: 'NO_TOKEN',
+        redirect: '/admin/login?error=no_token'
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const admin = await Admin.findById(decoded.id).select('-password').lean();
+    
+    if (!admin) {
+      return res.status(401).json({ 
+        success: false, 
+        code: 'ADMIN_NOT_FOUND',
+        redirect: '/admin/login?error=admin_not_found'
+      });
+    }
+
+    // Additional admin-specific checks
+    if (admin.role !== 'superadmin' && req.method !== 'GET') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        redirect: '/admin/dashboard?error=insufficient_privileges'
+      });
+    }
+
+    // Check token expiration (7 days)
+    if (decoded.iat < Math.floor(Date.now() / 1000) - (60 * 60 * 24 * 7)) {
+      return res.status(401).json({
+        success: false,
+        code: 'SESSION_EXPIRED',
+        redirect: '/admin/login?error=session_expired'
+      });
+    }
+
+    req.admin = admin;
+    next();
+  } catch (error) {
+    console.error('Admin authentication error:', error);
+    
+    let errorResponse = {
+      success: false,
+      code: 'ADMIN_AUTH_FAILED',
+      redirect: '/admin/login?error=auth_failed'
+    };
+
+    if (error.name === 'TokenExpiredError') {
+      errorResponse.code = 'ADMIN_SESSION_EXPIRED';
+      errorResponse.redirect = '/admin/login?error=session_expired';
+    } else if (error.name === 'JsonWebTokenError') {
+      errorResponse.code = 'INVALID_TOKEN';
+      errorResponse.redirect = '/admin/login?error=invalid_token';
+    }
+
+    return res.status(401).json(errorResponse);
+  }
+};
+
+// Token refresh middleware
+const refreshTokenMiddleware = async (req, res, next) => {
+  try {
+    const refreshToken = req.headers['x-refresh-token'];
+    if (!refreshToken) return next();
+
+    const tokenDoc = await Token.findOne({ token: refreshToken }).populate('userId');
+    if (!tokenDoc || tokenDoc.expiresAt < new Date()) {
+      await Token.deleteOne({ _id: tokenDoc?._id });
+      return next();
+    }
+
+    const newToken = jwt.sign(
+      { 
+        id: tokenDoc.userId._id,
+        phone: tokenDoc.userId.phoneNumber,
+        customerId: tokenDoc.userId.customerId 
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
+    );
+
+    res.set('X-New-Token', newToken);
+    next();
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    next();
+  }
+};
+
+// Apply middleware in your app
+app.use(loginRateLimiter); // Apply to all routes
 
 // ==================== MODELS ====================
 const loanApplicationSchema = new mongoose.Schema({
@@ -122,26 +436,25 @@ const adminSchema = new mongoose.Schema({
 const tokenSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Customer' },
   token: { type: String, required: true },
-  expiresAt: { type: Date, required: true, index: { expires: '7d' } }
+  expiresAt: { type: Date, required: true, index: { expires: '7d' } },
+  purpose: { type: String, enum: ['refresh', 'password_reset'], default: 'refresh' }
 });
 
-// Password hashing and comparison methods
-adminSchema.pre('save', async function(next) {
-  if (this.isModified('password')) {
-    this.password = await bcrypt.hash(this.password, 10);
-  }
-  next();
-});
-
+// ==================== SCHEMA HOOKS AND METHODS ====================
 customerSchema.pre('save', async function(next) {
-  if (this.isModified('password')) {
-    this.password = await bcrypt.hash(this.password, 10);
+  if (!this.isModified('password')) return next();
+  
+  try {
+    const salt = await bcrypt.genSalt(12);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 });
 
 customerSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
 customerSchema.methods.debugPassword = async function(candidatePassword) {
@@ -154,6 +467,13 @@ customerSchema.methods.debugPassword = async function(candidatePassword) {
   return match;
 };
 
+adminSchema.pre('save', async function(next) {
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 12);
+  }
+  next();
+});
+
 adminSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
@@ -163,167 +483,55 @@ const Customer = mongoose.model('Customer', customerSchema);
 const Admin = mongoose.model('Admin', adminSchema);
 const Token = mongoose.model('Token', tokenSchema);
 
-// ==================== JENGA API INTEGRATION ====================
-let jengaTokenCache = {
-  token: null,
-  expires: 0
-};
-
-async function getJengaToken() {
-  if (jengaTokenCache.token && Date.now() < jengaTokenCache.expires) {
-    return jengaTokenCache.token;
-  }
-
+// Example route using the improved Jenga integration
+app.post('/api/verify-id', async (req, res) => {
   try {
-    const credentials = Buffer.from(`${process.env.JENGA_USERNAME}:${process.env.JENGA_API_KEY}`).toString('base64');
+    const { idNumber, fullName } = req.body;
     
-    const response = await axios.post(
-      `${process.env.JENGA_BASE_URL}/identity/v2/token`,
-      { merchantCode: process.env.JENGA_MERCHANT_CODE },
-      {
-        headers: {
-          'Authorization': `Basic ${credentials}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      }
-    );
-
-    jengaTokenCache = {
-      token: response.data.access_token,
-      expires: Date.now() + 3500000
-    };
-
-    return jengaTokenCache.token;
+    const verification = await verifyIDWithJenga(idNumber, fullName);
+    
+    res.json({
+      success: verification.success,
+      verifiedBy: verification.verifiedBy,
+      message: verification.message,
+      timestamp: verification.timestamp
+    });
+    
   } catch (error) {
-    console.error('Jenga token error:', error.message);
-    throw new Error('Jenga API service unavailable. Using fallback verification.');
+    res.status(500).json({
+      success: false,
+      message: 'Verification service error'
+    });
   }
-}
+});
 
-async function verifyIDWithJenga(idNumber, fullName) {
-  try {
-    const token = await getJengaToken();
-    const [firstName, ...lastNameParts] = fullName.split(' ');
-    const lastName = lastNameParts.join(' ') || ' ';
+// Health check endpoint
+app.get('/api/jenga-status', async (req, res) => {
+  const status = await getJengaStatus();
+  res.json(status);
+});
 
-    const response = await axios.post(
-      `${process.env.JENGA_BASE_URL}/identity/v2/verify`,
-      {
-        identityDocument: {
-          documentType: "NATIONAL_ID",
-          documentNumber: idNumber,
-          firstName: firstName,
-          lastName: lastName
-        }
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      }
-    );
+// For protected routes
+app.get('/api/user/profile', authenticate, (req, res) => {
+  res.json({ success: true, user: req.user });
+});
 
-    return {
-      success: response.data.verified,
-      message: response.data.message || 'Verification completed',
-      data: response.data,
-      verifiedBy: 'JengaAPI'
-    };
-  } catch (error) {
-    console.error('Jenga verification error:', error.message);
-    
-    const isValid = idNumber.length >= 6;
-    return {
-      success: isValid,
-      message: isValid 
-        ? 'Basic verification completed (Jenga service unavailable)' 
-        : 'ID verification failed',
-      verifiedBy: 'Fallback',
-      fallback: true
-    };
-  }
-}
+// For admin routes
+app.get('/api/admin/dashboard', authenticateAdmin, (req, res) => {
+  res.json({ success: true, admin: req.admin });
+});
 
-// ==================== MIDDLEWARE ====================
-const authenticate = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.jsonResponse({ 
-        success: false, 
-        message: 'No token provided',
-        code: 'NO_TOKEN'
-      }, 401);
-    }
+// For routes with optional authentication
+app.get('/api/public/content', silentAuth, (req, res) => {
+  const response = { success: true, public: true };
+  if (req.user) response.user = req.user;
+  res.json(response);
+});
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await Customer.findById(decoded.id).select('-password');
-    
-    if (!user) {
-      return res.jsonResponse({ 
-        success: false, 
-        message: 'User not found',
-        code: 'USER_NOT_FOUND'
-      }, 401);
-    }
-
-    req.user = user;
-    next();
-  } catch (error) {
-    console.error('Authentication error:', error);
-    
-    if (error.name === 'TokenExpiredError') {
-      return res.jsonResponse({ 
-        success: false, 
-        message: 'Session expired. Please log in again.',
-        code: 'TOKEN_EXPIRED'
-      }, 401);
-    }
-    
-    res.jsonResponse({ 
-      success: false, 
-      message: 'Invalid token',
-      code: 'INVALID_TOKEN'
-    }, 401);
-  }
-};
-
-const authenticateAdmin = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.jsonResponse({ 
-        success: false, 
-        message: 'No token provided',
-        code: 'NO_TOKEN'
-      }, 401);
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const admin = await Admin.findById(decoded.id).select('-password');
-    
-    if (!admin) {
-      return res.jsonResponse({ 
-        success: false, 
-        message: 'Admin not found',
-        code: 'ADMIN_NOT_FOUND'
-      }, 401);
-    }
-
-    req.admin = admin;
-    next();
-  } catch (error) {
-    console.error('Admin authentication error:', error);
-    res.jsonResponse({ 
-      success: false, 
-      message: 'Invalid admin token',
-      code: 'INVALID_ADMIN_TOKEN'
-    }, 401);
-  }
-};
+// For token refresh
+app.post('/api/refresh-token', refreshTokenMiddleware, (req, res) => {
+  res.json({ success: true });
+});
 
 // ==================== EMAIL SERVICE ====================
 const transporter = nodemailer.createTransport({
@@ -368,25 +576,42 @@ app.get('/admin.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// ---------- CUSTOMER AUTHENTICATION ----------
+// ==================== CUSTOMER AUTHENTICATION ====================
+app.get('/debug/users', async (req, res) => {
+  try {
+    const users = await Customer.find({});
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/register', async (req, res) => {
   try {
     const { fullName, idNumber, phone, email, password } = req.body;
 
-    if (!fullName || !idNumber || !phone || !password) {
+    // Trim all string inputs
+    const cleanPassword = password.trim();
+    const cleanPhone = phone.replace(/\D/g, '').trim();
+    const cleanEmail = email ? email.trim() : null;
+    const cleanFullName = fullName.trim();
+    const cleanIdNumber = idNumber.trim();
+
+    // Input validation
+    if (!cleanFullName || !cleanIdNumber || !phone || !cleanPassword) {
       return res.jsonResponse({
         success: false,
         message: 'All required fields must be provided',
         missingFields: [
-          ...(!fullName ? ['fullName'] : []),
-          ...(!idNumber ? ['idNumber'] : []),
+          ...(!cleanFullName ? ['fullName'] : []),
+          ...(!cleanIdNumber ? ['idNumber'] : []),
           ...(!phone ? ['phone'] : []),
-          ...(!password ? ['password'] : [])
+          ...(!cleanPassword ? ['password'] : [])
         ]
       }, 400);
     }
 
-    if (password.length < 6) {
+    if (cleanPassword.length < 6) {
       return res.jsonResponse({
         success: false,
         message: 'Password must be at least 6 characters',
@@ -394,12 +619,11 @@ app.post('/api/register', async (req, res) => {
       }, 400);
     }
 
-    const normalizedPhone = phone.replace(/\D/g, '');
-
+    // Check for existing user
     const existingUser = await Customer.findOne({ 
       $or: [
-        { customerId: idNumber }, 
-        { phoneNumber: normalizedPhone }
+        { customerId: cleanIdNumber }, 
+        { phoneNumber: cleanPhone }
       ] 
     });
     
@@ -411,18 +635,25 @@ app.post('/api/register', async (req, res) => {
       }, 400);
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Create new customer - the pre-save hook will handle hashing
     const newCustomer = new Customer({
-      fullName,
-      customerId: idNumber,
-      phoneNumber: normalizedPhone,
-      email: email || null,
-      password: hashedPassword,
+      fullName: cleanFullName,
+      customerId: cleanIdNumber,
+      phoneNumber: cleanPhone,
+      email: cleanEmail,
+      password: cleanPassword, // Will be hashed by pre-save hook
       verificationStatus: 'pending'
     });
 
     await newCustomer.save();
 
+    // Debug log to verify password was hashed
+    console.log('New user created with hashed password:', {
+      userId: newCustomer._id,
+      passwordHash: newCustomer.password
+    });
+
+    // Generate tokens
     const token = jwt.sign(
       { 
         id: newCustomer._id,
@@ -442,19 +673,27 @@ app.post('/api/register', async (req, res) => {
       expiresAt
     });
 
+    // Prepare response data
     const userData = newCustomer.toObject();
     delete userData.password;
 
-    if (email) {
-      await sendEmail({
-        to: email,
-        subject: 'Welcome to Fonte Lenders',
-        html: `<h2>Welcome, ${fullName}!</h2>
-               <p>Your registration with Fonte Lenders is complete.</p>
-               <p>You can now apply for loans through our platform.</p>`
-      });
+    // Send welcome email if email was provided
+    if (cleanEmail) {
+      try {
+        await sendEmail({
+          to: cleanEmail,
+          subject: 'Welcome to Fonte Lenders',
+          html: `<h2>Welcome, ${cleanFullName}!</h2>
+                 <p>Your registration with Fonte Lenders is complete.</p>
+                 <p>You can now apply for loans through our platform.</p>`
+        });
+        console.log('Welcome email sent to:', cleanEmail);
+      } catch (emailError) {
+        console.error('Failed to send welcome email:', emailError);
+      }
     }
 
+    // Successful response
     res.jsonResponse({
       success: true,
       message: 'Registration successful',
@@ -468,53 +707,31 @@ app.post('/api/register', async (req, res) => {
     res.jsonResponse({
       success: false,
       message: 'Registration failed. Please try again.',
-      code: 'REGISTRATION_FAILED'
+      code: 'REGISTRATION_FAILED',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     }, 500);
   }
 });
 
 app.post('/api/login', async (req, res) => {
   try {
-    console.log('Login request body:', req.body); // Debug log
+    console.log('Login request body:', req.body);
     
-    if (!req.body || typeof req.body !== 'object') {
-      return res.jsonResponse({
-        success: false,
-        message: 'Invalid request format',
-        code: 'INVALID_REQUEST'
-      }, 400);
-    }
-
     const { phone, password } = req.body;
+    const cleanPhone = phone.replace(/\D/g, '').trim();
+    const cleanPassword = password.trim();
 
-    if (!phone || !password) {
-      return res.jsonResponse({
-        success: false,
-        message: 'Phone and password are required',
-        code: 'MISSING_CREDENTIALS'
-      }, 400);
-    }
-
-    // Normalize phone number (remove all non-digit characters)
-    const cleanPhone = phone.replace(/\D/g, '');
-    
-    // Generate all possible phone formats
-    const possiblePhones = [
-      cleanPhone, // Original format
-      cleanPhone.startsWith('254') ? `0${cleanPhone.substring(3)}` : null, // Convert 254 to 0
-      cleanPhone.startsWith('0') ? `254${cleanPhone.substring(1)}` : null, // Convert 0 to 254
-      cleanPhone.startsWith('254') ? cleanPhone.substring(3) : null // Just the local number
-    ].filter(Boolean);
-
-    console.log('Searching for user with phone formats:', possiblePhones);
-
-    // Find user with any matching phone format
+    // Find user and explicitly include password field
     const user = await Customer.findOne({
-      phoneNumber: { $in: possiblePhones }
-    }).select('+password');
+      $or: [
+        { phoneNumber: cleanPhone },
+        { phoneNumber: `254${cleanPhone.substring(cleanPhone.length - 9)}` },
+        { phoneNumber: `0${cleanPhone.substring(cleanPhone.length - 9)}` }
+      ]
+    }).select('+password'); // This is crucial
 
     if (!user) {
-      console.log('User not found for any phone format');
+      console.log('User not found for phone:', cleanPhone);
       return res.jsonResponse({
         success: false,
         message: 'Invalid credentials',
@@ -522,14 +739,16 @@ app.post('/api/login', async (req, res) => {
       }, 401);
     }
 
-    // Debug password comparison
-    const isMatch = await user.debugPassword(password);
+    console.log('Found user:', {
+      id: user._id,
+      phone: user.phoneNumber,
+      storedHash: user.password // Now this will show the actual hash
+    });
+
+    // Compare passwords
+    const isMatch = await user.comparePassword(cleanPassword);
     if (!isMatch) {
       console.log('Password does not match');
-      // Additional debug: Check if password needs to be reset
-      const shouldReset = await bcrypt.compare('test123', user.password);
-      console.log('Test password match:', shouldReset);
-      
       return res.jsonResponse({
         success: false,
         message: 'Invalid credentials',
@@ -537,11 +756,10 @@ app.post('/api/login', async (req, res) => {
       }, 401);
     }
 
-    // Update last login
+    // Rest of your login success logic...
     user.lastLogin = new Date();
     await user.save();
 
-    // Generate tokens
     const token = jwt.sign(
       { 
         id: user._id,
@@ -582,32 +800,254 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Temporary password reset endpoint (remove in production)
-app.post('/api/reset-password', async (req, res) => {
+// ==================== PASSWORD RESET ENDPOINTS (FIXED) ====================
+
+app.post('/api/request-password-reset', async (req, res) => {
   try {
-    const { phone, newPassword } = req.body;
-    const user = await Customer.findOne({ phoneNumber: phone }).select('+password');
+    const { email } = req.body;
     
-    if (!user) {
+    if (!email) {
       return res.jsonResponse({
         success: false,
-        message: 'User not found',
-        code: 'USER_NOT_FOUND'
-      }, 404);
+        message: 'Email is required',
+        code: 'EMAIL_REQUIRED'
+      }, 400);
     }
 
-    user.password = await bcrypt.hash(newPassword, 10);
-    await user.save();
+    const cleanEmail = email.trim();
+    const user = await Customer.findOne({ email: cleanEmail });
     
+    // Always return success to prevent email enumeration
+    const response = {
+      success: true,
+      message: 'If this email is registered, you will receive a reset code shortly.'
+    };
+
+    if (user) {
+      // Generate a 6-digit token
+      const token = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes expiry
+
+      // Delete any existing password reset tokens for this user
+      await Token.deleteMany({ 
+        userId: user._id,
+        purpose: 'password_reset'
+      });
+
+      // Create new token
+      const tokenDoc = await Token.create({
+        userId: user._id,
+        token,
+        expiresAt,
+        purpose: 'password_reset'
+      });
+
+      console.log(`Generated password reset token for ${user.email}:`, {
+        tokenId: tokenDoc._id,
+        token: token,
+        expiresAt: expiresAt
+      });
+
+      // Send email with token
+      const emailSent = await sendEmail({
+        to: user.email,
+        subject: 'Fonte Lenders - Password Reset Code',
+        html: `
+          <h2>Password Reset Request</h2>
+          <p>You requested to reset your password for Fonte Lenders.</p>
+          <p>Your verification code is: <strong>${token}</strong></p>
+          <p>This code will expire in 15 minutes.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+          <p style="margin-top: 20px; color: #888;">
+            <em>Please check your spam folder if you don't see this email in your inbox.</em>
+          </p>
+        `
+      });
+
+      if (!emailSent) {
+        console.error('Failed to send password reset email to:', user.email);
+      }
+    }
+
+    res.jsonResponse(response);
+
+  } catch (error) {
+    console.error('Password reset request error:', error);
+    res.jsonResponse({
+      success: false,
+      message: 'Failed to process password reset request',
+      code: 'RESET_REQUEST_FAILED'
+    }, 500);
+  }
+});
+
+app.post('/api/verify-reset-token', async (req, res) => {
+  try {
+    const { email, token } = req.body;
+    
+    if (!email || !token) {
+      return res.jsonResponse({
+        success: false,
+        message: 'Email and token are required',
+        code: 'MISSING_FIELDS'
+      }, 400);
+    }
+
+    const cleanEmail = email.trim();
+    const cleanToken = token.trim();
+
+    const user = await Customer.findOne({ email: cleanEmail });
+    if (!user) {
+      console.log(`User not found for email: ${cleanEmail}`);
+      return res.jsonResponse({
+        success: false,
+        message: 'Invalid request',
+        code: 'INVALID_REQUEST'
+      }, 400);
+    }
+
+    // Find token that's not expired
+    const tokenDoc = await Token.findOne({ 
+      userId: user._id,
+      token: cleanToken,
+      purpose: 'password_reset',
+      expiresAt: { $gt: new Date() } // Only find tokens that haven't expired
+    });
+
+    if (!tokenDoc) {
+      console.log(`Invalid or expired token for user ${user._id}: ${cleanToken}`);
+      // Check if there's an expired token
+      const expiredToken = await Token.findOne({
+        userId: user._id,
+        token: cleanToken,
+        purpose: 'password_reset'
+      });
+      
+      if (expiredToken) {
+        console.log('Found expired token, deleting it');
+        await Token.deleteOne({ _id: expiredToken._id });
+        return res.jsonResponse({
+          success: false,
+          message: 'Verification code has expired. Please request a new one.',
+          code: 'TOKEN_EXPIRED'
+        }, 400);
+      }
+      
+      return res.jsonResponse({
+        success: false,
+        message: 'Invalid verification code',
+        code: 'INVALID_TOKEN'
+      }, 400);
+    }
+
+    console.log(`Valid token found for user ${user._id}`);
+
     res.jsonResponse({
       success: true,
-      message: 'Password reset successfully'
+      message: 'Verification successful',
+      resetToken: tokenDoc.token // Return the same token for the next step
     });
+
+  } catch (error) {
+    console.error('Token verification error:', error);
+    res.jsonResponse({
+      success: false,
+      message: 'Failed to verify code',
+      code: 'TOKEN_VERIFICATION_FAILED'
+    }, 500);
+  }
+});
+
+app.post('/api/reset-password', async (req, res) => {
+  try {
+    const { email, token, newPassword, confirmPassword } = req.body;
+    
+    if (!email || !token || !newPassword || !confirmPassword) {
+      return res.jsonResponse({
+        success: false,
+        message: 'All fields are required',
+        code: 'MISSING_FIELDS'
+      }, 400);
+    }
+
+    const cleanEmail = email.trim();
+    const cleanToken = token.trim();
+    const cleanNewPassword = newPassword.trim();
+    const cleanConfirmPassword = confirmPassword.trim();
+
+    if (cleanNewPassword !== cleanConfirmPassword) {
+      return res.jsonResponse({
+        success: false,
+        message: 'Passwords do not match',
+        code: 'PASSWORD_MISMATCH'
+      }, 400);
+    }
+
+    if (cleanNewPassword.length < 8) {
+      return res.jsonResponse({
+        success: false,
+        message: 'Password must be at least 8 characters',
+        code: 'PASSWORD_TOO_SHORT'
+      }, 400);
+    }
+
+    const user = await Customer.findOne({ email: cleanEmail });
+    if (!user) {
+      console.log(`User not found during password reset: ${cleanEmail}`);
+      return res.jsonResponse({
+        success: false,
+        message: 'Invalid request',
+        code: 'INVALID_REQUEST'
+      }, 400);
+    }
+
+    // Find token that's not expired
+    const tokenDoc = await Token.findOne({ 
+      userId: user._id,
+      token: cleanToken,
+      purpose: 'password_reset',
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!tokenDoc) {
+      console.log(`Invalid or expired token during password reset for user ${user._id}`);
+      return res.jsonResponse({
+        success: false,
+        message: 'Session expired. Please start the reset process again.',
+        code: 'SESSION_EXPIRED'
+      }, 400);
+    }
+
+    console.log(`Resetting password for user ${user._id}`);
+
+    // Set the new password - pre-save hook will hash it
+    user.password = cleanNewPassword;
+    await user.save();
+
+    // Delete the used token
+    await Token.deleteOne({ _id: tokenDoc._id });
+
+    // Send confirmation email
+    await sendEmail({
+      to: user.email,
+      subject: 'Your Password Has Been Reset',
+      html: `
+        <h2>Password Reset Successful</h2>
+        <p>Your Fonte Lenders password has been successfully reset.</p>
+        <p>If you didn't make this change, please contact support immediately.</p>
+      `
+    });
+
+    res.jsonResponse({
+      success: true,
+      message: 'Password reset successful'
+    });
+
   } catch (error) {
     console.error('Password reset error:', error);
     res.jsonResponse({
       success: false,
-      message: 'Password reset failed',
+      message: 'Failed to reset password',
       code: 'PASSWORD_RESET_FAILED'
     }, 500);
   }
@@ -692,6 +1132,7 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       loanPurpose
     } = req.body;
 
+    // Input validation
     const requiredFields = { 
       amount, 
       guarantorName, 
@@ -713,6 +1154,25 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       }, 400);
     }
 
+    // Validate amount is a number
+    if (isNaN(amount)) {
+      return res.jsonResponse({
+        success: false,
+        message: 'Amount must be a valid number',
+        code: 'INVALID_AMOUNT'
+      }, 400);
+    }
+
+    const numericAmount = parseFloat(amount);
+    if (numericAmount <= 0) {
+      return res.jsonResponse({
+        success: false,
+        message: 'Amount must be greater than 0',
+        code: 'INVALID_AMOUNT'
+      }, 400);
+    }
+
+    // Get customer with financial details
     const customer = await Customer.findById(req.user._id)
       .select('+customerId +fullName +phoneNumber +email +maxLoanLimit +currentLoanBalance');
     
@@ -724,8 +1184,9 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       }, 404);
     }
 
+    // Check loan limits
     const availableLimit = customer.maxLoanLimit - customer.currentLoanBalance;
-    if (amount > availableLimit) {
+    if (numericAmount > availableLimit) {
       return res.jsonResponse({
         success: false,
         message: 'Loan limit exceeded',
@@ -735,11 +1196,46 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       }, 400);
     }
 
-    const [customerVerification, guarantorVerification] = await Promise.all([
-      verifyIDWithJenga(customer.customerId, customer.fullName),
-      verifyIDWithJenga(guarantorId, guarantorName)
-    ]);
+    // Verify customer and guarantor IDs with enhanced error handling
+    let customerVerification, guarantorVerification;
+    let verificationError = null;
+    
+    try {
+      [customerVerification, guarantorVerification] = await Promise.all([
+        verifyIDWithJenga(customer.customerId, customer.fullName),
+        verifyIDWithJenga(guarantorId, guarantorName)
+      ]);
+    } catch (error) {
+      console.error('Verification error:', error);
+      verificationError = error;
+      
+      // If fallback is enabled, create verifications with fallback status
+      if (process.env.ENABLE_FALLBACK_VERIFICATION === 'true') {
+        customerVerification = {
+          success: true,
+          verifiedBy: 'fallback',
+          message: 'Verification pending manual review',
+          fallback: true,
+          timestamp: new Date().toISOString()
+        };
+        guarantorVerification = {
+          success: true,
+          verifiedBy: 'fallback',
+          message: 'Verification pending manual review',
+          fallback: true,
+          timestamp: new Date().toISOString()
+        };
+      } else {
+        return res.jsonResponse({
+          success: false,
+          message: 'ID verification service unavailable',
+          details: error.message,
+          code: 'VERIFICATION_SERVICE_UNAVAILABLE'
+        }, 503);
+      }
+    }
 
+    // Check verification results
     if (!customerVerification.success || !guarantorVerification.success) {
       return res.jsonResponse({
         success: false,
@@ -751,13 +1247,14 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       }, 400);
     }
 
+    // Create loan application
     const application = new LoanApplication({
       customerId: customer.customerId,
       userId: customer._id,
       fullName: customer.fullName,
       phoneNumber: customer.phoneNumber,
       email: customer.email,
-      amount,
+      amount: numericAmount,
       purpose: loanPurpose || 'Personal Loan',
       signature,
       guarantor: {
@@ -771,33 +1268,15 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
       verificationData: {
         customer: customerVerification,
         guarantor: guarantorVerification,
-        verificationMethod: customerVerification.fallback ? 'fallback' : 'jenga'
+        verificationMethod: customerVerification.fallback ? 'fallback' : 'jenga',
+        verificationError: verificationError ? verificationError.message : null
       }
     });
 
     await application.save();
 
-    const sendNotifications = async () => {
-      try {
-        await sendEmail({
-          to: process.env.ADMIN_EMAIL,
-          subject: 'New Loan Application Submitted',
-          html: generateAdminNotificationEmail(customer, application, availableLimit)
-        });
-
-        if (customer.email) {
-          await sendEmail({
-            to: customer.email,
-            subject: 'Your Loan Application Has Been Received',
-            html: generateCustomerConfirmationEmail(customer, application, customerVerification)
-          });
-        }
-      } catch (emailError) {
-        console.error('Notification email error:', emailError);
-      }
-    };
-
-    sendNotifications();
+    // Send notifications (async - don't wait for completion)
+    sendLoanApplicationNotifications(customer, application, availableLimit, customerVerification);
 
     return res.jsonResponse({
       success: true,
@@ -823,6 +1302,41 @@ app.post('/api/submit-loan', authenticate, async (req, res) => {
     }, 500);
   }
 });
+
+// Helper function for sending notifications
+async function sendLoanApplicationNotifications(customer, application, availableLimit, verification) {
+  try {
+    // Send admin notification
+    await sendEmail({
+      to: process.env.ADMIN_EMAIL,
+      subject: 'New Loan Application Submitted',
+      html: generateAdminNotificationEmail(customer, application, availableLimit)
+    });
+
+    // Send customer confirmation if email exists
+    if (customer.email) {
+      await sendEmail({
+        to: customer.email,
+        subject: 'Your Loan Application Has Been Received',
+        html: generateCustomerConfirmationEmail(customer, application, verification)
+      });
+    }
+
+    // Optionally send SMS notification if configured
+    if (process.env.SMS_SERVICE_ENABLED === 'true') {
+      await sendSMSNotification(customer.phoneNumber, application);
+    }
+  } catch (error) {
+    console.error('Notification error:', error);
+    // Don't throw - notifications are non-critical
+  }
+}
+
+// SMS notification function (placeholder)
+async function sendSMSNotification(phoneNumber, application) {
+  // Implement your SMS service integration here
+  console.log(`SMS notification would be sent to ${phoneNumber} for application ${application._id}`);
+}
 
 // Email template generators
 function generateAdminNotificationEmail(customer, application, availableLimit) {
@@ -913,4 +1427,46 @@ const startServer = async () => {
   }
 };
 
+// ==================== PASSWORD MIGRATION SCRIPT ====================
+async function migratePasswords() {
+  try {
+    console.log('Starting password migration...');
+    await mongoose.connect(MONGODB_URI, mongooseOptions);
+    
+    const customers = await Customer.find();
+    let updatedCount = 0;
+
+    for (const customer of customers) {
+      // Skip already hashed passwords
+      if (customer.password.startsWith('$2a$') || customer.password.startsWith('$2b$')) {
+        continue;
+      }
+
+      try {
+        // Temporarily disable the pre-save hook
+        Customer.schema.pre('save', function(next) { next(); });
+        
+        const salt = await bcrypt.genSalt(12);
+        customer.password = await bcrypt.hash(customer.password, salt);
+        await customer.save();
+        
+        console.log(`✅ Updated password for ${customer.email || customer.phoneNumber}`);
+        updatedCount++;
+      } catch (err) {
+        console.error(`❌ Error updating ${customer.email || customer.phoneNumber}:`, err);
+      }
+    }
+
+    console.log(`\nMigration complete. Updated ${updatedCount} records.`);
+    process.exit(0);
+  } catch (error) {
+    console.error('Migration error:', error);
+    process.exit(1);
+  }
+}
+
+// Uncomment to run migration (run once then comment out again)
+// migratePasswords();
+
+// ==================== START THE SERVER ====================
 startServer();
