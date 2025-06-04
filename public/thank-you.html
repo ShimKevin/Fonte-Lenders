@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thank You - Fonte Lenders</title>
+  <style>
+    :root {
+      --gold: #FFD700;
+      --dark-bg: #121212;
+      --light-bg: rgba(30, 30, 30, 0.8);
+      --success: #4CAF50;
+    }
+
+    body {
+      background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+      font-family: 'Georgia', serif;
+      color: #e0e0e0;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      line-height: 1.6;
+    }
+
+    .frame {
+      border: 1px solid rgba(255, 215, 0, 0.3);
+      padding: 40px;
+      background: rgba(20, 20, 20, 0.8);
+      width: 90%;
+      max-width: 800px;
+      box-shadow: 0 0 40px rgba(255, 215, 0, 0.1);
+      position: relative;
+      margin: 30px 0;
+      text-align: center;
+    }
+
+    .frame-corner {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border: 2px solid var(--gold);
+      opacity: 0.7;
+    }
+
+    .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+    .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+    .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+    .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+    h1, h2, h3 {
+      color: var(--gold);
+      font-family: 'Times New Roman', serif;
+    }
+
+    .logo-header {
+      margin-bottom: 30px;
+      border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+      padding-bottom: 20px;
+    }
+
+    .confirmation-message {
+      padding: 30px;
+      background: rgba(0, 100, 0, 0.1);
+      border: 1px solid rgba(0, 255, 0, 0.2);
+      margin: 30px 0;
+      color: var(--success);
+    }
+
+    .home-link {
+      color: var(--gold);
+      text-decoration: none;
+      border: 1px solid var(--gold);
+      padding: 12px 24px;
+      border-radius: 4px;
+      transition: all 0.3s;
+      display: inline-block;
+      margin-top: 20px;
+    }
+
+    .home-link:hover {
+      background: rgba(255, 215, 0, 0.1);
+      transform: translateY(-2px);
+    }
+
+    .checkmark {
+      color: var(--success);
+      font-size: 60px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 600px) {
+      .frame { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="frame">
+  <div class="frame-corner frame-corner-1"></div>
+  <div class="frame-corner frame-corner-2"></div>
+  <div class="frame-corner frame-corner-3"></div>
+  <div class="frame-corner frame-corner-4"></div>
+  
+  <div class="logo-header">
+    <h1>FONTE LENDERS</h1>
+    <h2>Application Received</h2>
+  </div>
+
+  <div class="confirmation-message">
+    <div class="checkmark">✓</div>
+    <h3>Thank You for choosing Fonte Lenders-Your partner in need!</h3>
+    <p>We have successfully received your loan application.</p>
+    <p>Your loan will be processed within 24 hours.</p>
+  </div>
+
+  <a href="index.html" class="home-link">Return to Homepage</a>
+</div>
+
+<script>
+  // Optional: Auto-redirect after 10 seconds
+  setTimeout(function() {
+    window.location.href = "index.html";
+  }, 10000);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Fonte Lenders - Registration</title>
+    <style>
+        :root {
+            --gold: #FFD700;
+            --dark-bg: #121212;
+            --light-bg: rgba(30, 30, 30, 0.8);
+            --error: #ff6b6b;
+            --success: #4CAF50;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            font-family: 'Georgia', serif;
+            color: #e0e0e0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            line-height: 1.6;
+        }
+
+        .frame {
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 40px;
+            background: rgba(20, 20, 20, 0.8);
+            width: 90%;
+            max-width: 800px;
+            box-shadow: 0 0 40px rgba(255, 215, 0, 0.1);
+            position: relative;
+            margin: 30px 0;
+        }
+
+        .frame-corner {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 2px solid var(--gold);
+            opacity: 0.7;
+        }
+
+        .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+        .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+        .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+        h1, h2, h3 {
+            color: var(--gold);
+            font-family: 'Times New Roman', serif;
+            text-align: center;
+        }
+
+        .logo-header {
+            margin-bottom: 30px;
+            border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+            padding-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--gold);
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            color: white;
+            font-family: 'Georgia';
+            border-radius: 2px;
+            transition: border 0.3s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--gold);
+        }
+
+        .submit-btn {
+            background: linear-gradient(to right, #FFD700, #D4AF37);
+            color: #121212;
+            border: none;
+            padding: 15px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .submit-btn:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .error-message {
+            color: var(--error);
+            font-size: 0.8rem;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .confirmation {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            background: rgba(0, 100, 0, 0.2);
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            margin-top: 20px;
+            color: var(--success);
+        }
+
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--gold);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #verification-modal {
+            display: none; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: rgba(0,0,0,0.8); 
+            z-index: 1000; 
+            justify-content: center; 
+            align-items: center;
+        }
+
+        #verification-modal > div {
+            background: var(--dark-bg); 
+            padding: 30px; 
+            border: 1px solid var(--gold); 
+            max-width: 500px;
+            width: 90%;
+        }
+
+        #verification-message {
+            color: var(--gold);
+        }
+
+        #verification-modal button {
+            background: var(--gold); 
+            color: #000; 
+            padding: 10px 20px; 
+            margin-top: 20px; 
+            border: none; 
+            cursor: pointer;
+            width: 100%;
+        }
+
+        /* Password toggle button styles */
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 38px;
+            cursor: pointer;
+            color: rgba(255, 215, 0, 0.5);
+            transition: all 0.3s;
+            background: none;
+            border: none;
+            font-size: 18px;
+        }
+
+        .password-toggle:hover {
+            color: var(--gold);
+            transform: scale(1.1);
+        }
+
+        /* Animation styles */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(76, 175, 80, 0); }
+        }
+
+        .shake-animation { animation: shake 0.5s ease-in-out; }
+        .success-pulse { animation: pulse 0.5s ease-out; }
+
+        @media (max-width: 600px) {
+            .frame { padding: 20px; }
+            input, select, textarea { padding: 10px; font-size: 14px; }
+            .password-toggle { top: 34px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="frame">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <div class="logo-header">
+            <h1>FONTE LENDERS</h1>
+            <h2>Customer Registration</h2>
+        </div>
+
+        <!-- Verification Modal -->
+        <div id="verification-modal">
+            <div>
+                <h3 id="verification-message"></h3>
+                <button id="modal-close-btn">Close</button>
+            </div>
+        </div>
+
+        <form id="registrationForm">
+            <div class="form-group">
+                <label for="fullName">Full Name</label>
+                <input type="text" id="fullName" required placeholder="Enter your full name as it appears on ID">
+                <div class="error-message" id="fullName-error">Please enter your full name</div>
+            </div>
+
+            <div class="form-group">
+                <label for="idNumber">National ID Number</label>
+                <input type="text" id="idNumber" required pattern="[0-9]{8}" placeholder="Enter your 8-digit Kenyan ID" title="8-digit Kenyan ID number">
+                <div class="error-message" id="idNumber-error">Please enter a valid 8-digit ID number</div>
+            </div>
+
+            <div class="form-group">
+                <label for="phone">Phone Number (M-Pesa)</label>
+                <input type="tel" id="phone" required pattern="[0-9]{10}" placeholder="07XXXXXXXX" title="10-digit phone number">
+                <div class="error-message" id="phone-error">Please enter a valid 10-digit phone number</div>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email (Optional)</label>
+                <input type="email" id="email" placeholder="Your email address">
+                <div class="error-message" id="email-error">Please enter a valid email address</div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" required minlength="6" placeholder="Create a password (min 6 characters)">
+                <button type="button" class="password-toggle" id="togglePassword">👁️</button>
+                <div class="error-message" id="password-error">Password must be at least 6 characters</div>
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <input type="password" id="confirmPassword" required placeholder="Confirm your password">
+                <button type="button" class="password-toggle" id="toggleConfirmPassword">👁️</button>
+                <div class="error-message" id="confirmPassword-error">Passwords do not match</div>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submitBtn">
+                <div id="btnText">REGISTER</div>
+                <div class="spinner" id="spinner"></div>
+            </button>
+        </form>
+
+        <div class="confirmation" id="confirmation">
+            <h3>Registration Successful!</h3>
+            <p>Your account has been created successfully.</p>
+            <p>Redirecting to login page...</p>
+        </div>
+
+        <p style="text-align: center; margin-top: 20px;">
+            Already have an account? <a href="login.html" style="color: var(--gold);">Login here</a>
+        </p>
+    </div>
+
+    <script>
+        // Function to validate field
+        function validateField(field, errorId, validationFn) {
+            const errorElement = document.getElementById(errorId);
+            const isValid = validationFn(field.value);
+            if (!isValid) {
+                errorElement.style.display = 'block';
+                field.style.borderColor = 'var(--error)';
+                field.classList.add('shake-animation');
+                setTimeout(() => field.classList.remove('shake-animation'), 500);
+                return false;
+            } else {
+                errorElement.style.display = 'none';
+                field.style.borderColor = 'rgba(255, 215, 0, 0.3)';
+                field.classList.add('success-pulse');
+                setTimeout(() => field.classList.remove('success-pulse'), 300);
+                return true;
+            }
+        }
+
+        // Password toggle functionality
+        function setupPasswordToggle(passwordFieldId, toggleButtonId) {
+            const passwordField = document.getElementById(passwordFieldId);
+            const toggleButton = document.getElementById(toggleButtonId);
+            
+            toggleButton.addEventListener('click', function() {
+                const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordField.setAttribute('type', type);
+                toggleButton.textContent = type === 'password' ? '👁️' : '🔒';
+                toggleButton.title = type === 'password' ? 'Show password' : 'Hide password';
+            });
+        }
+
+        // Setup event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Password toggle buttons
+            setupPasswordToggle('password', 'togglePassword');
+            setupPasswordToggle('confirmPassword', 'toggleConfirmPassword');
+
+            // Modal close button
+            document.getElementById('modal-close-btn').addEventListener('click', function() {
+                document.getElementById('verification-modal').style.display = 'none';
+            });
+
+            // Field validations
+            document.getElementById('fullName').addEventListener('input', function() {
+                validateField(this, 'fullName-error', value => value.trim().length >= 3);
+            });
+
+            document.getElementById('idNumber').addEventListener('input', function() {
+                validateField(this, 'idNumber-error', value => /^\d{8}$/.test(value));
+            });
+
+            document.getElementById('phone').addEventListener('input', function() {
+                validateField(this, 'phone-error', value => /^\d{10}$/.test(value));
+            });
+
+            document.getElementById('email').addEventListener('input', function() {
+                validateField(this, 'email-error', value => value === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
+            });
+
+            document.getElementById('password').addEventListener('input', function() {
+                validateField(this, 'password-error', value => value.length >= 6);
+                // Also validate confirm password when password changes
+                const confirmPassword = document.getElementById('confirmPassword');
+                if (confirmPassword.value) {
+                    validateField(confirmPassword, 'confirmPassword-error', 
+                        val => val === this.value);
+                }
+            });
+
+            document.getElementById('confirmPassword').addEventListener('input', function() {
+                validateField(this, 'confirmPassword-error', 
+                    value => value === document.getElementById('password').value);
+            });
+
+            // Form submission
+            document.getElementById('registrationForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                // Clear previous errors
+                document.querySelectorAll('.error-message').forEach(el => {
+                    el.style.display = 'none';
+                });
+                
+                // Validate all fields
+                const fields = [
+                    ['fullName', 'fullName-error', val => val.trim().length >= 3],
+                    ['idNumber', 'idNumber-error', val => /^\d{8}$/.test(val)],
+                    ['phone', 'phone-error', val => /^\d{10}$/.test(val)],
+                    ['email', 'email-error', val => val === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)],
+                    ['password', 'password-error', val => val.length >= 6],
+                    ['confirmPassword', 'confirmPassword-error', val => val === document.getElementById('password').value]
+                ];
+
+                const isValid = fields.every(([id, errorId, fn]) => 
+                    validateField(document.getElementById(id), errorId, fn));
+
+                if (!isValid) return;
+
+                // Show loading state
+                document.getElementById('submitBtn').disabled = true;
+                document.getElementById('spinner').style.display = 'inline-block';
+                document.getElementById('btnText').textContent = 'Processing...';
+                document.getElementById('submitBtn').style.background = 'linear-gradient(to right, #FFD700, #D4AF37, #FFD700)';
+                document.getElementById('submitBtn').style.backgroundSize = '200% auto';
+                document.getElementById('submitBtn').style.animation = 'gradientFlow 2s linear infinite';
+
+                try {
+                    // Prepare registration data
+                    const formData = {
+                        fullName: document.getElementById('fullName').value.trim(),
+                        idNumber: document.getElementById('idNumber').value,
+                        phone: document.getElementById('phone').value,
+                        email: document.getElementById('email').value || null,
+                        password: document.getElementById('password').value
+                    };
+
+                    // Send registration data to server
+                    const response = await fetch('/api/register', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(formData)
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.message || 'Registration failed');
+                    }
+
+                    // Success animation
+                    document.getElementById('registrationForm').style.opacity = '0';
+                    document.getElementById('registrationForm').style.transform = 'translateY(-20px)';
+                    document.getElementById('registrationForm').style.transition = 'all 0.5s ease';
+                    
+                    setTimeout(() => {
+                        // Store user data and token in localStorage
+                        localStorage.setItem('authToken', data.token);
+                        localStorage.setItem('userData', JSON.stringify(data.user));
+                        localStorage.setItem('refreshToken', data.refreshToken);
+
+                        // Show success message
+                        document.getElementById('registrationForm').style.display = 'none';
+                        document.getElementById('confirmation').style.display = 'block';
+                        document.getElementById('confirmation').style.opacity = '0';
+                        document.getElementById('confirmation').style.transform = 'translateY(20px)';
+                        
+                        setTimeout(() => {
+                            document.getElementById('confirmation').style.opacity = '1';
+                            document.getElementById('confirmation').style.transform = 'translateY(0)';
+                        }, 50);
+                        
+                        // Redirect to login page after 2 seconds
+                        setTimeout(() => {
+                            window.location.href = 'login.html';
+                        }, 2000);
+                    }, 500);
+                    
+                } catch (error) {
+                    console.error('Registration error:', error);
+                    
+                    // Error animation
+                    document.getElementById('registrationForm').classList.add('shake-animation');
+                    setTimeout(() => {
+                        document.getElementById('registrationForm').classList.remove('shake-animation');
+                    }, 500);
+                    
+                    // Show error in modal
+                    const modal = document.getElementById('verification-modal');
+                    modal.style.opacity = '0';
+                    modal.style.transform = 'scale(0.9)';
+                    modal.style.display = 'flex';
+                    
+                    document.getElementById('verification-message').textContent = 
+                        error.message || 'Registration failed. Please check your details and try again.';
+                    
+                    setTimeout(() => {
+                        modal.style.opacity = '1';
+                        modal.style.transform = 'scale(1)';
+                        modal.style.transition = 'all 0.3s ease';
+                    }, 50);
+                    
+                    // Reset button state
+                    resetButtonState();
+                }
+            });
+
+            // Helper function to reset button state
+            function resetButtonState() {
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('spinner').style.display = 'none';
+                document.getElementById('btnText').textContent = 'REGISTER';
+                document.getElementById('submitBtn').style.background = 'linear-gradient(to right, #FFD700, #D4AF37)';
+                document.getElementById('submitBtn').style.animation = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

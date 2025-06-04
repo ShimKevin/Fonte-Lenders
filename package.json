@@ -1,0 +1,50 @@
+{
+  "name": "fonte-lenders-forms",
+  "version": "1.0.0",
+  "description": "Fonte Lenders Loan Application",
+  "scripts": {
+    "preinstall": "chmod +x download-mongosh.sh && ./download-mongosh.sh",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "vercel-dev": "vercel dev",
+    "serve": "serve -s .",
+    "build": "echo 'Build complete' && exit 0",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "bcryptjs": "^3.0.2",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.1.0",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.15.0",
+    "nodemailer": "^6.10.1",
+    "path": "^0.12.7",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "serve": "^14.2.0"
+  },
+  "engines": {
+    "node": ">=16.x"
+  },
+  "main": "server.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShimKevin/fonte-lenders-forms.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ShimKevin/fonte-lenders-forms/issues"
+  },
+  "homepage": "https://github.com/ShimKevin/fonte-lenders-forms#readme"
+}

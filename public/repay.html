@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fonte Lenders - Repay Loan</title>
+    <style>
+        :root {
+            --gold: #FFD700;
+            --dark-bg: #121212;
+            --success: #4CAF50;
+            --error: #f44336;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            font-family: 'Georgia', serif;
+            color: #e0e0e0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .frame {
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 40px;
+            background: rgba(20, 20, 20, 0.8);
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 0 40px rgba(255, 215, 0, 0.1);
+            position: relative;
+        }
+        
+        .frame-corner {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 2px solid var(--gold);
+            opacity: 0.7;
+        }
+        
+        .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+        .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+        .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+        
+        h1, h2 {
+            color: var(--gold);
+            text-align: center;
+        }
+        
+        .loan-summary {
+            background: rgba(255, 215, 0, 0.05);
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            border-left: 4px solid var(--gold);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--gold);
+        }
+        
+        input {
+            width: 100%;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            color: white;
+            font-family: 'Georgia';
+            border-radius: 4px;
+        }
+        
+        .btn {
+            background: linear-gradient(to right, #FFD700, #D4AF37);
+            color: #121212;
+            border: none;
+            padding: 12px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .error-message {
+            color: var(--error);
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        
+        .success-message {
+            color: var(--success);
+            text-align: center;
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0, 100, 0, 0.1);
+            border-radius: 4px;
+        }
+        
+        .loading {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255, 215, 0, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--gold);
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="frame">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <h1>Repay Loan</h1>
+        
+        <div id="loanSummary" class="loan-summary">
+            <p>Loading your loan details...</p>
+        </div>
+        
+        <form id="repaymentForm">
+            <div class="form-group">
+                <label for="amount">Amount (KES)</label>
+                <input type="number" id="amount" required min="100" step="100">
+                <div id="amountError" class="error-message"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="phoneNumber">M-Pesa Phone Number</label>
+                <input type="tel" id="phoneNumber" placeholder="e.g., 0712345678" required>
+                <div id="phoneError" class="error-message"></div>
+            </div>
+            
+            <button type="submit" class="btn" id="submitBtn">Initiate Payment</button>
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Processing your payment...</p>
+            </div>
+        </form>
+        
+        <div id="successMessage" class="success-message hidden"></div>
+        <div id="paymentInstructions" class="loan-summary hidden">
+            <h3>Payment Instructions</h3>
+            <p id="instructionsText"></p>
+        </div>
+        
+        <button class="btn" onclick="window.location.href='profile.html'">Back to Profile</button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            let activeLoan = null;
+            
+            // Load loan details
+            try {
+                const response = await fetch('/api/user/profile', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.activeLoan) {
+                    activeLoan = data.activeLoan;
+                    const summary = document.getElementById('loanSummary');
+                    summary.innerHTML = `
+                        <h3>Loan Summary</h3>
+                        <p><strong>Amount:</strong> KES ${activeLoan.amount.toLocaleString()}</p>
+                        <p><strong>Amount Paid:</strong> KES ${activeLoan.amountPaid.toLocaleString()}</p>
+                        <p><strong>Amount Remaining:</strong> KES ${activeLoan.amountRemaining.toLocaleString()}</p>
+                        <p><strong>Due Date:</strong> ${new Date(activeLoan.dueDate).toLocaleDateString()} (${activeLoan.daysRemaining} days remaining)</p>
+                    `;
+                    
+                    // Set default payment amount to remaining balance
+                    document.getElementById('amount').value = activeLoan.amountRemaining;
+                } else {
+                    document.getElementById('loanSummary').innerHTML = `
+                        <p>You don't have any active loans.</p>
+                    `;
+                    document.getElementById('repaymentForm').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Failed to load loan details:', error);
+                document.getElementById('loanSummary').innerHTML = `
+                    <p class="error">Failed to load loan details. Please try again.</p>
+                `;
+            }
+
+            // Form submission
+            document.getElementById('repaymentForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const submitBtn = document.getElementById('submitBtn');
+                const loading = document.getElementById('loading');
+                const successMessage = document.getElementById('successMessage');
+                const paymentInstructions = document.getElementById('paymentInstructions');
+                
+                // Clear errors
+                document.getElementById('amountError').textContent = '';
+                document.getElementById('phoneError').textContent = '';
+                
+                const amount = parseFloat(document.getElementById('amount').value);
+                const phoneNumber = document.getElementById('phoneNumber').value.trim();
+                
+                // Validate
+                if (!amount || amount <= 0) {
+                    document.getElementById('amountError').textContent = 'Please enter a valid amount';
+                    return;
+                }
+                
+                if (!phoneNumber || phoneNumber.length < 10) {
+                    document.getElementById('phoneError').textContent = 'Please enter a valid phone number';
+                    return;
+                }
+                
+                submitBtn.disabled = true;
+                loading.classList.remove('hidden');
+                successMessage.classList.add('hidden');
+                paymentInstructions.classList.add('hidden');
+                
+                try {
+                    const response = await fetch('/api/payments/initiate', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                            amount: amount,
+                            phoneNumber: phoneNumber
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.message || 'Failed to initiate payment');
+                    }
+                    
+                    successMessage.textContent = 'Payment initiated successfully!';
+                    successMessage.classList.remove('hidden');
+                    
+                    document.getElementById('instructionsText').textContent = data.instructions;
+                    paymentInstructions.classList.remove('hidden');
+                    
+                    // Update the loan summary with the new payment
+                    if (activeLoan) {
+                        activeLoan.amountPaid += amount;
+                        activeLoan.amountRemaining = activeLoan.amount - activeLoan.amountPaid;
+                        
+                        const summary = document.getElementById('loanSummary');
+                        summary.innerHTML = `
+                            <h3>Loan Summary</h3>
+                            <p><strong>Amount:</strong> KES ${activeLoan.amount.toLocaleString()}</p>
+                            <p><strong>Amount Paid:</strong> KES ${activeLoan.amountPaid.toLocaleString()}</p>
+                            <p><strong>Amount Remaining:</strong> KES ${activeLoan.amountRemaining.toLocaleString()}</p>
+                            <p><strong>Due Date:</strong> ${new Date(activeLoan.dueDate).toLocaleDateString()} (${activeLoan.daysRemaining} days remaining)</p>
+                        `;
+                        
+                        // Update the amount field
+                        document.getElementById('amount').value = activeLoan.amountRemaining;
+                    }
+                    
+                } catch (error) {
+                    console.error('Payment error:', error);
+                    alert('Failed to initiate payment: ' + error.message);
+                } finally {
+                    submitBtn.disabled = false;
+                    loading.classList.add('hidden');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

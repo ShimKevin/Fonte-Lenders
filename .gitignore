@@ -1,0 +1,6 @@
+.vercel
+node_modules/
+*.deb
+.env*
+!.env.example
+mongosh.deb

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Cache Control Meta Tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Fonte Lenders - Payment Settings</title>
+    <style>
+        :root {
+            --gold: #FFD700;
+            --dark-bg: #121212;
+            --success: #4CAF50;
+            --error: #f44336;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            font-family: 'Georgia', serif;
+            color: #e0e0e0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .frame {
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 40px;
+            background: rgba(20, 20, 20, 0.8);
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 0 40px rgba(255, 215, 0, 0.1);
+            position: relative;
+        }
+        
+        .frame-corner {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 2px solid var(--gold);
+            opacity: 0.7;
+        }
+        
+        .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+        .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+        .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+        
+        h1, h2 {
+            color: var(--gold);
+            text-align: center;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--gold);
+        }
+        
+        select, input {
+            width: 100%;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            color: white;
+            font-family: 'Georgia';
+            border-radius: 4px;
+        }
+        
+        .btn {
+            background: linear-gradient(to right, #FFD700, #D4AF37);
+            color: #121212;
+            border: none;
+            padding: 12px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .error-message {
+            color: var(--error);
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        
+        .success-message {
+            color: var(--success);
+            text-align: center;
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0, 100, 0, 0.1);
+            border-radius: 4px;
+        }
+        
+        .loading {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255, 215, 0, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--gold);
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="frame">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <h1>Payment Preferences</h1>
+        
+        <form id="paymentForm">
+            <div class="form-group">
+                <label for="paymentMethod">Payment Method</label>
+                <select id="paymentMethod" required>
+                    <option value="M-Pesa Paybill">M-Pesa Paybill</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Cash">Cash</option>
+                </select>
+            </div>
+            
+            <div id="mpesaFields" class="form-group">
+                <label for="mpesaNumber">M-Pesa Phone Number</label>
+                <input type="tel" id="mpesaNumber" placeholder="e.g., 0712345678">
+                <div id="mpesaError" class="error-message"></div>
+            </div>
+            
+            <div id="bankFields" class="form-group hidden">
+                <label for="bankName">Bank Name</label>
+                <input type="text" id="bankName" placeholder="e.g., Equity Bank">
+                
+                <label for="accountNumber">Account Number</label>
+                <input type="text" id="accountNumber" placeholder="e.g., 1234567890">
+                
+                <label for="accountName">Account Name</label>
+                <input type="text" id="accountName" placeholder="e.g., John Doe">
+                <div id="bankError" class="error-message"></div>
+            </div>
+            
+            <button type="submit" class="btn" id="submitBtn">Save Preferences</button>
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Saving your preferences...</p>
+            </div>
+        </form>
+        
+        <div id="successMessage" class="success-message hidden"></div>
+        
+        <button class="btn" onclick="window.location.href='profile.html'">Back to Profile</button>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            // Payment success handler
+            window.handlePaymentSuccess = async function() {
+                // Trigger custom event
+                const event = new CustomEvent('paymentSuccess');
+                document.dispatchEvent(event);
+                
+                // Redirect with cache busting
+                window.location.href = `profile.html?t=${Date.now()}`;
+            };
+
+            // Load current preferences
+            try {
+                const response = await fetch('/api/user/profile', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const prefs = data.user.paymentPreferences;
+                    document.getElementById('paymentMethod').value = prefs.mode;
+                    
+                    if (prefs.mode === 'M-Pesa Paybill') {
+                        document.getElementById('mpesaNumber').value = prefs.paybillDetails.accountNumber;
+                    } else if (prefs.mode === 'Bank Transfer' && prefs.bankDetails) {
+                        document.getElementById('bankName').value = prefs.bankDetails.bankName || '';
+                        document.getElementById('accountNumber').value = prefs.bankDetails.accountNumber || '';
+                        document.getElementById('accountName').value = prefs.bankDetails.accountName || '';
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load payment preferences:', error);
+            }
+
+            // Toggle fields based on payment method
+            document.getElementById('paymentMethod').addEventListener('change', function() {
+                const method = this.value;
+                document.getElementById('mpesaFields').classList.toggle('hidden', method !== 'M-Pesa Paybill');
+                document.getElementById('bankFields').classList.toggle('hidden', method !== 'Bank Transfer');
+            });
+
+            // Form submission
+            document.getElementById('paymentForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const submitBtn = document.getElementById('submitBtn');
+                const loading = document.getElementById('loading');
+                
+                submitBtn.disabled = true;
+                loading.classList.remove('hidden');
+                
+                const method = document.getElementById('paymentMethod').value;
+                const payload = { mode: method };
+                
+                if (method === 'M-Pesa Paybill') {
+                    const mpesaNumber = document.getElementById('mpesaNumber').value.trim();
+                    if (!mpesaNumber || mpesaNumber.length < 10) {
+                        document.getElementById('mpesaError').textContent = 'Please enter a valid M-Pesa number';
+                        submitBtn.disabled = false;
+                        loading.classList.add('hidden');
+                        return;
+                    }
+                    payload.mpesaNumber = mpesaNumber;
+                } else if (method === 'Bank Transfer') {
+                    const bankName = document.getElementById('bankName').value.trim();
+                    const accountNumber = document.getElementById('accountNumber').value.trim();
+                    const accountName = document.getElementById('accountName').value.trim();
+                    
+                    if (!bankName || !accountNumber || !accountName) {
+                        document.getElementById('bankError').textContent = 'All bank details are required';
+                        submitBtn.disabled = false;
+                        loading.classList.add('hidden');
+                        return;
+                    }
+                    
+                    payload.bankDetails = { bankName, accountNumber, accountName };
+                }
+                
+                try {
+                    const response = await fetch('/api/user/payment-preferences', {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.message || 'Failed to update preferences');
+                    }
+
+                    // Update local storage
+                    const userData = JSON.parse(localStorage.getItem('userData'));
+                    if (userData) {
+                        userData.paymentPreferences = data.paymentPreferences;
+                        localStorage.setItem('userData', JSON.stringify(userData));
+                    }
+
+                    // Trigger payment success flow
+                    window.handlePaymentSuccess();
+                    
+                } catch (error) {
+                    console.error('Update error:', error);
+                    alert('Failed to update payment preferences: ' + error.message);
+                } finally {
+                    submitBtn.disabled = false;
+                    loading.classList.add('hidden');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

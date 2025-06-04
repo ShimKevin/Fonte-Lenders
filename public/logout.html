@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logout - Fonte Lenders</title>
+    <style>
+        :root {
+            --gold: #FFD700;
+            --dark-bg: #121212;
+            --light-bg: rgba(30, 30, 30, 0.8);
+            --error: #ff6b6b;
+            --success: #4CAF50;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            font-family: 'Georgia', serif;
+            color: #e0e0e0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            line-height: 1.6;
+        }
+
+        .logout-container {
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            padding: 40px;
+            background: rgba(20, 20, 20, 0.8);
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 0 40px rgba(255, 215, 0, 0.1);
+            text-align: center;
+            position: relative;
+        }
+
+        .frame-corner {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 2px solid var(--gold);
+            opacity: 0.7;
+        }
+
+        .frame-corner-1 { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .frame-corner-2 { top: 0; right: 0; border-left: none; border-bottom: none; }
+        .frame-corner-3 { bottom: 0; right: 0; border-left: none; border-top: none; }
+        .frame-corner-4 { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+        h1 {
+            color: var(--gold);
+            font-family: 'Times New Roman', serif;
+            margin-bottom: 30px;
+        }
+
+        .message {
+            margin-bottom: 30px;
+            font-size: 1.1rem;
+        }
+
+        .btn {
+            background: linear-gradient(to right, #FFD700, #D4AF37);
+            color: #121212;
+            border: none;
+            padding: 12px 25px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1rem;
+            letter-spacing: 1px;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+        }
+
+        .copyright {
+            text-align: center;
+            margin-top: 30px;
+            color: rgba(255, 215, 0, 0.7);
+            font-size: 0.9rem;
+            font-family: 'Georgia', serif;
+        }
+    </style>
+</head>
+<body>
+    <div class="logout-container">
+        <div class="frame-corner frame-corner-1"></div>
+        <div class="frame-corner frame-corner-2"></div>
+        <div class="frame-corner frame-corner-3"></div>
+        <div class="frame-corner frame-corner-4"></div>
+        
+        <h1>FONTE LENDERS</h1>
+        
+        <div class="message">
+            You have been successfully logged out. We hope to see you again soon!
+        </div>
+        
+        <a href="login.html" class="btn">Login Again</a>
+        <a href="index.html" class="btn">Return Home</a>
+        
+        <div class="copyright">
+            &copy; 2023 Fonte Lenders. All Rights Reserved.
+        </div>
+    </div>
+
+    <script>
+        // Clear authentication data on page load
+        document.addEventListener("DOMContentLoaded", function() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userData');
+            
+            // Optional: Notify other tabs about logout
+            if (typeof BroadcastChannel !== 'undefined') {
+                const authChannel = new BroadcastChannel('auth');
+                authChannel.postMessage({ action: 'logout' });
+            }
+        });
+    </script>
+</body>
+</html>
