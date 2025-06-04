@@ -2,16 +2,27 @@
   "name": "fonte-lenders-forms",
   "version": "1.0.0",
   "description": "Fonte Lenders Loan Application",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.21.2",
-    "mongodb": "^5.9.2"
+    "axios": "^1.9.0",
+    "bcryptjs": "^3.0.2",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.1.0",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.15.0",
+    "nodemailer": "^6.10.1",
+    "socket.io": "^4.8.1"
   },
   "engines": {
     "node": ">=16.x"
