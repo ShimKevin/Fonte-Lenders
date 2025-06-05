@@ -305,10 +305,16 @@ function displayCustomerResults(customers) {
         return;
     }
     
-    container.innerHTML = customers.map(customer => `
+    container.innerHTML = customers.map(customer => {
+        // Calculate available credit safely
+        const maxLimit = customer.maxLoanLimit || 0;
+        const currentBalance = customer.currentLoanBalance || 0;
+        const availableCredit = Math.max(maxLimit - currentBalance, 0);
+        
+        return `
         <div class="customer-card">
             <div class="customer-header">
-                <h4>${customer.fullName || 'N/A'}</h4>
+                <h4>${customer.fullName || 'Unknown'}</h4>
                 <span class="customer-id">ID: ${customer.customerId || 'N/A'}</span>
             </div>
             
@@ -325,15 +331,15 @@ function displayCustomerResults(customers) {
                 </div>
                 <div class="detail-row">
                     <span>Current Limit:</span>
-                    <span>KES ${customer.maxLoanLimit?.toLocaleString() || '0'}</span>
+                    <span>KES ${maxLimit.toLocaleString()}</span>
                 </div>
                 <div class="detail-row">
                     <span>Current Balance:</span>
-                    <span>KES ${customer.currentLoanBalance?.toLocaleString() || '0'}</span>
+                    <span>KES ${currentBalance.toLocaleString()}</span>
                 </div>
                 <div class="detail-row">
                     <span>Available Credit:</span>
-                    <span>KES ${(customer.maxLoanLimit - customer.currentLoanBalance).toLocaleString()}</span>
+                    <span>KES ${availableCredit.toLocaleString()}</span>
                 </div>
                 
                 <div class="limit-controls">
@@ -341,7 +347,7 @@ function displayCustomerResults(customers) {
                     <div class="limit-input-group">
                         <input type="number" 
                             id="limit-${customer._id}" 
-                            value="${customer.maxLoanLimit || 0}"
+                            value="${maxLimit}"
                             min="0"
                             step="100">
                         <button class="action-btn" onclick="updateCustomerLimit('${customer._id}')">
@@ -356,7 +362,8 @@ function displayCustomerResults(customers) {
                 </button>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 async function updateCustomerLimit(customerId, context = 'search') {
@@ -446,6 +453,10 @@ async function loadCustomerProfile(customerId) {
 function renderCustomerProfile(customer) {
     const profileSection = document.getElementById('customer-profile-section');
     
+    // Safely handle currentLoanBalance (default to 0 if undefined)
+    const currentBalance = customer.currentLoanBalance || 0;
+    const availableCredit = customer.maxLoanLimit - currentBalance;
+    
     profileSection.innerHTML = `
     <div class="profile-header">
         <button class="back-btn" onclick="backToDashboard()">
@@ -486,10 +497,10 @@ function renderCustomerProfile(customer) {
                 <strong>Loan Limit:</strong> KES ${customer.maxLoanLimit.toLocaleString()}
             </div>
             <div class="profile-field">
-                <strong>Current Balance:</strong> KES ${customer.currentLoanBalance.toLocaleString()}
+                <strong>Current Balance:</strong> KES ${currentBalance.toLocaleString()}
             </div>
             <div class="profile-field">
-                <strong>Available Credit:</strong> KES ${(customer.maxLoanLimit - customer.currentLoanBalance).toLocaleString()}
+                <strong>Available Credit:</strong> KES ${availableCredit.toLocaleString()}
             </div>
             <div class="profile-field">
                 <strong>Verification Status:</strong> 
@@ -578,8 +589,8 @@ function renderCustomerLoans(loans) {
         <tbody>
             ${loans.map(loan => `
             <tr>
-                <td>${loan.loanId.substring(0, 8)}</td>
-                <td>KES ${loan.amount.toLocaleString()}</td>
+                <td>${loan.loanId?.substring(0, 8) || loan._id.substring(0,8)}</td>
+                <td>KES ${loan.amount?.toLocaleString() || '0'}</td>
                 <td class="status-${loan.status.toLowerCase()}">${loan.status}</td>
                 <td>${new Date(loan.createdAt).toLocaleDateString()}</td>
                 <td>${loan.dueDate ? new Date(loan.dueDate).toLocaleDateString() : 'N/A'}</td>
@@ -587,6 +598,11 @@ function renderCustomerLoans(loans) {
                     <button class="action-btn" onclick="viewLoanDetails('${loan._id}')">
                         View
                     </button>
+                    ${loan.status === 'completed' ? `
+                      <button class="action-btn" onclick="downloadLoanDocuments('${loan._id}')">
+                        Documents
+                      </button>
+                    ` : ''}
                 </td>
             </tr>
             `).join('')}
@@ -714,6 +730,19 @@ async function showLoans(status, page = 1) {
         }
     } catch (error) {
         debugLog(`Failed to load ${status} loans: ${error.message}`);
+        
+        // Show error in UI
+        const gridContainer = document.getElementById('loans-grid-container');
+        const tableContainer = document.getElementById('loans-table-container');
+        
+        if (gridContainer) {
+            gridContainer.innerHTML = `<p class="error">Error loading loans: ${error.message}</p>`;
+        }
+        
+        if (tableContainer) {
+            tableContainer.innerHTML = `<p class="error">Error loading loans: ${error.message}</p>`;
+        }
+        
         showError(`Failed to load ${status} loans: ${error.message}`, 'loans');
     } finally {
         hideLoading('loans');
@@ -722,19 +751,25 @@ async function showLoans(status, page = 1) {
 
 // Display active loans in card layout
 function displayActiveLoans(loans) {
-    const container = document.getElementById('loans-container');
-    document.getElementById('loans-section-title').textContent = 'Active Loans';
+    // Hide table container, show grid container
+    document.getElementById('loans-table-container').style.display = 'none';
+    const gridContainer = document.getElementById('loans-grid-container');
+    const grid = document.getElementById('loans-grid');
     
-    if (!loans.length) {
-        container.innerHTML = '<p>No active loans found</p>';
+    if (!gridContainer || !grid) {
+        debugLog('Error: Loans grid elements not found');
         return;
     }
     
-    container.innerHTML = `
-        <div class="loans-grid">
-            ${loans.map(loan => createLoanCard(loan)).join('')}
-        </div>
-    `;
+    gridContainer.style.display = 'block';
+    document.getElementById('loans-section-title').textContent = 'Active Loans';
+    
+    if (!loans.length) {
+        grid.innerHTML = '<p>No active loans found</p>';
+        return;
+    }
+    
+    grid.innerHTML = loans.map(loan => createLoanCard(loan)).join('');
     
     document.getElementById('admin-grid').classList.add('hidden');
     document.getElementById('loans-section').classList.remove('hidden');
@@ -787,7 +822,18 @@ function createLoanCard(loan) {
 
 // Display other loan statuses in table
 function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
+    // Hide grid container, show table container
+    document.getElementById('loans-grid-container').style.display = 'none';
+    const tableContainer = document.getElementById('loans-table-container');
     const tableBody = document.getElementById('loans-table-body');
+    
+    if (!tableContainer || !tableBody) {
+        debugLog('Error: Loans table elements not found');
+        return;
+    }
+    
+    tableContainer.style.display = 'block';
+    
     const titleMap = {
         pending: 'Pending Loan Applications',
         active: 'Active Loans',
@@ -801,7 +847,7 @@ function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
         <tr>
             <td>${loan.fullName || 'Unknown'}</td>
             <td>KES ${loan.amount?.toLocaleString() || '0'}</td>
-            <td class="status-${loan.status}">${loan.status?.toUpperCase()}</td>
+            <td class="status-${loan.status.toLowerCase()}">${loan.status?.toUpperCase()}</td>
             <td>${formatDate(loan.createdAt)}</td>
             <td class="${isOverdue(loan) ? 'status-overdue' : ''}">
                 ${loan.dueDate ? formatDate(loan.dueDate) : 'N/A'}
@@ -812,6 +858,9 @@ function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
                     <button class="action-btn" onclick="processLoan('${loan._id}', 'reject')">REJECT</button>
                 ` : ''}
                 <button class="action-btn" onclick="showLoanDetails('${loan._id}')">DETAILS</button>
+                ${loan.status === 'completed' ? `
+                    <button class="action-btn" onclick="downloadLoanDocuments('${loan._id}')">DOCUMENTS</button>
+                ` : ''}
             </td>
         </tr>
     `).join('') : '<tr><td colspan="6">No loans found</td></tr>';
@@ -831,10 +880,10 @@ function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
         }
         
         // Remove existing pagination
-        const existingPagination = tableBody.parentNode.querySelector('.pagination');
+        const existingPagination = tableContainer.querySelector('.pagination');
         if (existingPagination) existingPagination.remove();
         
-        tableBody.parentNode.appendChild(pagination);
+        tableContainer.appendChild(pagination);
     }
     
     document.getElementById('admin-grid').classList.add('hidden');
@@ -851,77 +900,93 @@ async function showLoanDetails(loanId) {
   currentLoanId = loanId;
   const modal = document.getElementById('loanDetailsModal');
   
-  if (!modal) {
-    debugLog('Loan details modal not found');
-    return;
-  }
-  
   try {
     showLoading('loanDetailsModal');
-    debugLog(`Loading loan details for: ${loanId}`);
     const response = await apiClient(`/api/admin/loan-applications/${loanId}`);
     const loan = response.data || response.loan;
     
-    // Calculate days remaining
-    const dueDate = new Date(loan.dueDate);
-    const now = new Date();
-    const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-
-    // Create repayment history table
-    const repaymentRows = (loan.repayments || []).map(payment => `
+    // FIX: Properly handle repayment history
+    const repaymentRows = (loan.repaymentSchedule || []).map(payment => `
       <tr>
-        <td>${formatDate(payment.date)}</td>
+        <td>${formatDate(payment.dueDate)}</td>
         <td>KES ${payment.amount?.toLocaleString() || '0'}</td>
-        <td>${payment.reference || 'N/A'}</td>
-        <td>${payment.approvedBy || 'System'}</td>
+        <td>KES ${payment.paidAmount?.toLocaleString() || '0'}</td>
         <td class="status-${payment.status}">${payment.status?.toUpperCase() || 'PENDING'}</td>
+        <td>${payment.paidAt ? formatDate(payment.paidAt) : 'N/A'}</td>
       </tr>
     `).join('') || '<tr><td colspan="5">No repayment history</td></tr>';
     
     document.getElementById('loanDetailsContent').innerHTML = `
       <div class="loan-details-modal-content">
-        <div class="loan-summary">
-          <div class="detail-row">
-            <span>Principal:</span>
-            <span>KES ${loan.amount?.toLocaleString() || '0'}</span>
+        <div class="loan-header">
+          <h3>Loan Details</h3>
+          <button class="close-modal" onclick="closeModal('loanDetailsModal')">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        
+        <div class="loan-info-grid">
+          <div class="loan-info-section">
+            <h4>Basic Information</h4>
+            <div class="info-field">
+              <strong>Loan ID:</strong> ${loan.loanId?.substring(0, 8) || loan._id.substring(0,8)}
+            </div>
+            <div class="info-field">
+              <strong>Customer:</strong> 
+              <span class="customer-link" onclick="showCustomerProfile('${loan.userId?._id || ''}')">
+                ${loan.fullName || 'Unknown'}
+              </span>
+            </div>
+            <div class="info-field">
+              <strong>Principal:</strong> KES ${loan.principal?.toLocaleString() || loan.amount?.toLocaleString() || '0'}
+            </div>
+            <div class="info-field">
+              <strong>Total Amount:</strong> KES ${loan.totalAmount?.toLocaleString() || '0'}
+            </div>
           </div>
-          <div class="detail-row">
-            <span>Interest Rate:</span>
-            <span>${loan.interestRate || '0'}%</span>
-          </div>
-          <div class="detail-row">
-            <span>Total Amount:</span>
-            <span>KES ${loan.totalAmount?.toLocaleString() || '0'}</span>
-          </div>
-          <div class="detail-row">
-            <span>Amount Paid:</span>
-            <span>KES ${loan.amountPaid?.toLocaleString() || '0'}</span>
-          </div>
-          <div class="detail-row">
-            <span>Amount Due:</span>
-            <span>KES ${((loan.totalAmount || 0) - (loan.amountPaid || 0)).toLocaleString()}</span>
-          </div>
-          <div class="detail-row">
-            <span>Days Remaining:</span>
-            <span class="days-remaining ${daysRemaining < 7 ? 'text-warning' : ''}">
-              ${daysRemaining > 0 ? daysRemaining : '0'}
-            </span>
-          </div>
-          <div class="detail-row">
-            <span>Status:</span>
-            <span class="status-${loan.status}">${loan.status?.toUpperCase()}</span>
+          
+          <div class="loan-info-section">
+            <h4>Status & Dates</h4>
+            <div class="info-field">
+              <strong>Status:</strong> 
+              <span class="status-${loan.status.toLowerCase()}">${loan.status.toUpperCase()}</span>
+            </div>
+            <div class="info-field">
+              <strong>Created:</strong> ${formatDate(loan.createdAt)}
+            </div>
+            <div class="info-field">
+              <strong>Due Date:</strong> ${loan.dueDate ? formatDate(loan.dueDate) : 'N/A'}
+            </div>
+            <div class="info-field">
+              <strong>Completed:</strong> ${loan.completedAt ? formatDate(loan.completedAt) : 'N/A'}
+            </div>
           </div>
         </div>
         
-        <h4>Repayment History</h4>
+        <div class="payment-summary">
+          <div class="summary-card">
+            <h5>Amount Paid</h5>
+            <p>KES ${loan.amountPaid?.toLocaleString() || '0'}</p>
+          </div>
+          <div class="summary-card">
+            <h5>Balance</h5>
+            <p>KES ${(loan.totalAmount - loan.amountPaid)?.toLocaleString() || '0'}</p>
+          </div>
+          <div class="summary-card">
+            <h5>Days Remaining</h5>
+            <p>${calculateDaysRemaining(loan.dueDate)}</p>
+          </div>
+        </div>
+        
+        <h4>Repayment Schedule</h4>
         <table class="repayment-table">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Amount</th>
-              <th>Reference</th>
-              <th>Approved By</th>
+              <th>Due Date</th>
+              <th>Scheduled Amount</th>
+              <th>Paid Amount</th>
               <th>Status</th>
+              <th>Paid At</th>
             </tr>
           </thead>
           <tbody>
@@ -930,97 +995,58 @@ async function showLoanDetails(loanId) {
         </table>
         
         ${loan.status === 'active' && loan.amountPaid < loan.totalAmount ? `
-          <div class="force-complete-section">
-            <button class="luxury-btn" id="force-complete-btn" 
-                    style="background: var(--green); margin-top: 20px;">
+          <div class="force-payment-section" style="margin-top: 30px;">
+            <h4>Force Payment</h4>
+            <div class="form-group">
+              <label for="force-payment-amount">Amount</label>
+              <input type="number" id="force-payment-amount" 
+                     min="1" max="${loan.totalAmount - loan.amountPaid}" 
+                     step="100" value="${loan.totalAmount - loan.amountPaid}">
+            </div>
+            <button class="luxury-btn" id="force-payment-btn" 
+                    style="background: var(--green);">
+              RECORD PAYMENT
+            </button>
+          </div>
+        ` : ''}
+        
+        ${loan.status === 'active' ? `
+          <div class="loan-actions" style="margin-top: 20px;">
+            <button class="action-btn danger" onclick="forceCompleteLoan('${loan._id}')">
               MARK AS COMPLETED
             </button>
-            <p class="warning-note">Only use if customer paid directly without system</p>
           </div>
         ` : ''}
       </div>
     `;
     
-    // Add event listener for force complete button
-    const forceCompleteBtn = document.getElementById('force-complete-btn');
-    if (forceCompleteBtn) {
-      forceCompleteBtn.addEventListener('click', () => forceCompleteLoan(loanId));
+    // Add event listener for force payment button
+    const forcePaymentBtn = document.getElementById('force-payment-btn');
+    if (forcePaymentBtn) {
+      forcePaymentBtn.addEventListener('click', () => {
+        const amount = parseFloat(document.getElementById('force-payment-amount').value);
+        if (amount > 0) {
+          recordManualPayment(loanId, amount);
+        }
+      });
     }
     
     modal.style.display = 'block';
   } catch (error) {
-    debugLog(`Failed to load loan details: ${error.message}`);
-    showError('Failed to load loan details: ' + error.message, 'loanDetailsModal');
+    debugLog(`Loan details error: ${error.message}`);
+    showError('Failed to load loan details: ' + error.message);
   } finally {
     hideLoading('loanDetailsModal');
   }
 }
 
-// Update loan display from socket events
-function updateLoanDisplay(data) {
-  const loanDetails = document.getElementById('loan-details');
-  if (loanDetails) {
-    loanDetails.innerHTML = `
-      <p>Principal: KES ${data.principal.toLocaleString()}</p>
-      <p>Total: KES ${data.totalAmount.toLocaleString()}</p>
-    `;
-  }
+function calculateDaysRemaining(dueDate) {
+  if (!dueDate) return 'N/A';
+  const due = new Date(dueDate);
+  const now = new Date();
+  const diff = due - now;
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
-
-// Update payment display from socket events
-function updatePaymentDisplay(data) {
-  const paymentInfo = document.getElementById('payment-info');
-  if (paymentInfo) {
-    paymentInfo.innerHTML = `
-      <p>Paid: KES ${data.amountPaid.toLocaleString()}</p>
-      <p>Due: KES ${data.amountDue.toLocaleString()}</p>
-    `;
-  }
-  
-  // Update days remaining daily
-  const daysElement = document.querySelector('.days-remaining');
-  if (daysElement) {
-    const days = parseInt(daysElement.textContent) - 1;
-    daysElement.textContent = days > 0 ? days : '0';
-  }
-}
-
-// Daily update for days remaining
-function updateLoanDays() {
-  document.querySelectorAll('.loan-card').forEach(card => {
-    const daysElement = card.querySelector('.days-remaining');
-    if (daysElement) {
-      const currentDays = parseInt(daysElement.textContent);
-      if (currentDays > 0) {
-        daysElement.textContent = currentDays - 1;
-        
-        // Highlight if less than 7 days
-        if (currentDays - 1 < 7) {
-          daysElement.classList.add('text-warning');
-        }
-      }
-    }
-  });
-}
-
-// Run hourly to update days remaining and refresh data
-setInterval(() => {
-    updateLoanDays();
-    
-    // Refresh the current view without changing UI state
-    const currentView = getCurrentView();
-    
-    if (currentView === 'loans') {
-        const loanStatus = document.getElementById('loans-section-title').textContent.toLowerCase();
-        if (loanStatus.includes('pending') || loanStatus.includes('active')) {
-            showLoans(loanStatus.includes('pending') ? 'pending' : 'active');
-        }
-    } else if (currentView === 'payments') {
-        showPendingPayments();
-    } else if (currentView === 'customer-profile' && currentCustomerId) {
-        loadCustomerProfile(currentCustomerId);
-    }
-}, 60 * 60 * 1000); // 1 hour
 
 // ==================== FORCE COMPLETE LOAN FUNCTION ====================
 async function forceCompleteLoan(loanId) {
@@ -1156,7 +1182,7 @@ function displayPendingPayments(payments, totalPages = 1, currentPage = 1) {
     tableBody.innerHTML = payments.length ? payments.map(payment => `
         <tr>
             <td>
-                <div class="customer-link" onclick="showCustomerProfile('${payment.userId._id}')">
+                <div class="customer-link" onclick="viewCustomerProfile('${payment.userId._id}')">
                     <i class="fas fa-user"></i> ${payment.userId.fullName || 'Unknown'}
                 </div>
             </td>
@@ -1203,20 +1229,16 @@ async function approvePayment(paymentId) {
         );
         
         if (response.success) {
-            // Get the actual payment amount from the payment record
-            const payment = await Payment.findById(paymentId).lean();
-            const paymentAmount = payment.amount;
-            
             showNotification(`Payment approved for ${response.customerName}!`, 'success');
             
-            // Emit socket event with corrected values
+            // Emit socket event
             socket.emit('paymentApproved', {
                 paymentId,
                 adminName: currentAdmin.username,
                 userId: response.data.userId,
                 loanId: response.data.loanId,
-                amount: paymentAmount,
-                newBalance: response.data.customer.currentLoanBalance
+                amount: response.data.amount,
+                newBalance: response.data.customer.newBalance
             });
             
             // Refresh pending payments list
@@ -1291,13 +1313,11 @@ async function generateReport() {
         debugLog(`Generating report: ${reportType}`);
         let endpoint = `/api/admin/reports/${reportType}`;
         
-        if (reportType === 'custom' && (!startDate || !endDate)) {
-            showError('Please select both start and end dates', 'reportModal');
-            return;
-        }
-        
-        if (reportType === 'custom') {
-            endpoint += `?start=${startDate}&end=${endDate}`;
+        // Proper date formatting
+        if (reportType === 'custom' && startDate && endDate) {
+            const formattedStart = new Date(startDate).toISOString().split('T')[0];
+            const formattedEnd = new Date(endDate).toISOString().split('T')[0];
+            endpoint += `?start=${formattedStart}&end=${formattedEnd}`;
         }
         
         const response = await apiClient(endpoint);
@@ -1318,37 +1338,45 @@ function displayReport(reportData) {
     const reportContent = document.getElementById('reportContent');
     reportContent.innerHTML = `
         <div class="report-summary">
-            <h4>${reportData.title}</h4>
-            <p>Period: ${reportData.startDate} to ${reportData.endDate}</p>
-            <p>Total Loans: KES ${reportData.totalLoans?.toLocaleString() || '0'}</p>
-            <p>New Customers: ${reportData.newCustomers || '0'}</p>
-            <p>Repayments Received: KES ${reportData.repaymentsReceived?.toLocaleString() || '0'}</p>
-            <p>Default Rate: ${reportData.defaultRate || '0'}%</p>
+            <h4>${reportData.title || 'Loan Activity Report'}</h4>
+            ${reportData.startDate ? `<p>Period: ${reportData.startDate} to ${reportData.endDate}</p>` : ''}
+            <p>Generated: ${new Date().toLocaleDateString()}</p>
+            
+            ${reportData.totalLoans ? `<p>Total Loans: KES ${reportData.totalLoans.toLocaleString()}</p>` : ''}
+            ${reportData.newCustomers ? `<p>New Customers: ${reportData.newCustomers}</p>` : ''}
+            ${reportData.repaymentsReceived ? `<p>Repayments Received: KES ${reportData.repaymentsReceived.toLocaleString()}</p>` : ''}
+            ${reportData.defaultRate ? `<p>Default Rate: ${reportData.defaultRate}%</p>` : ''}
         </div>
         
-        <h4>Loan Activity</h4>
-        <table class="loan-table">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>New Loans</th>
-                    <th>Repayments</th>
-                    <th>Defaults</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${reportData.dailyActivity?.length > 0 ? 
-                    reportData.dailyActivity.map(day => `
-                        <tr>
-                            <td>${day.date}</td>
-                            <td>${day.newLoans || '0'}</td>
-                            <td>KES ${day.repayments?.toLocaleString() || '0'}</td>
-                            <td>${day.defaults || '0'}</td>
-                        </tr>
-                    `).join('') 
-                    : '<tr><td colspan="4">No activity data</td></tr>'}
-            </tbody>
-        </table>
+        ${reportData.dailyActivity?.length > 0 ? `
+          <h4>Loan Activity</h4>
+          <table class="loan-table">
+              <thead>
+                  <tr>
+                      <th>Date</th>
+                      <th>New Loans</th>
+                      <th>Repayments</th>
+                      <th>Defaults</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${reportData.dailyActivity.map(day => `
+                      <tr>
+                          <td>${day.date}</td>
+                          <td>${day.newLoans || '0'}</td>
+                          <td>KES ${day.repayments?.toLocaleString() || '0'}</td>
+                          <td>${day.defaults || '0'}</td>
+                      </tr>
+                  `).join('')}
+              </tbody>
+          </table>
+        ` : '<p>No activity data available</p>'}
+        
+        <div class="report-actions">
+            <button class="luxury-btn" onclick="exportReport()">
+                <i class="fas fa-download"></i> Export to CSV
+            </button>
+        </div>
     `;
     
     document.getElementById('reportModal').style.display = 'block';
@@ -1680,9 +1708,30 @@ function enableDebugConsole() {
 
 // ==================== UPDATED REFRESH FUNCTION ====================
 async function refreshAdminPortal() {
+  // Get refresh button reference FIRST (outside try/catch)
+  const refreshBtn = document.getElementById('refresh-admin-btn');
+  
+  // Store original text BEFORE try block
+  const originalText = refreshBtn.innerHTML;
+  
+  // Initialize timeout handler
+  let timeout;
+  
   try {
     debugLog('Refreshing admin portal...');
     showNotification('Refreshing data...', 'info');
+    
+    // Disable and show spinner
+    refreshBtn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Refreshing...';
+    refreshBtn.disabled = true;
+    
+    // Set timeout for slow operation warning
+    timeout = setTimeout(() => {
+      if (refreshBtn.innerHTML.includes('fa-spin')) {
+        showNotification('Refresh is taking longer than expected...', 'warning');
+        debugLog('Refresh operation taking longer than 5 seconds');
+      }
+    }, 5000);
     
     // Refresh dashboard metrics
     await loadAdminData();
@@ -1717,16 +1766,51 @@ async function refreshAdminPortal() {
     showNotification('Portal data refreshed', 'success');
   } catch (error) {
     debugLog(`Refresh failed: ${error.message}`);
-    showNotification('Refresh failed: ' + error.message, 'error');
+    console.error('CRITICAL REFRESH ERROR:', error);
+    showNotification('Critical error during refresh!', 'error');
+  } finally {
+    // Always clear timeout and restore button state
+    clearTimeout(timeout);
+    
+    if (refreshBtn) {
+      refreshBtn.innerHTML = originalText;
+      refreshBtn.disabled = false;
+    }
   }
 }
 
-function getCurrentView() {
-    if (!document.getElementById('loans-section').classList.contains('hidden')) return 'loans';
-    if (!document.getElementById('pending-payments-section').classList.contains('hidden')) return 'payments';
-    if (document.getElementById('customerDetails').style.display !== 'none') return 'customer';
-    if (document.getElementById('customer-profile-section') && 
-        !document.getElementById('customer-profile-section').classList.contains('hidden')) 
-        return 'customer-profile';
-    return 'dashboard';
+// ==================== DOCUMENT DOWNLOAD ====================
+function downloadLoanDocuments(loanId) {
+  // Placeholder implementation - would call backend in real app
+  debugLog(`Downloading documents for loan: ${loanId}`);
+  showNotification('Preparing documents for download...', 'info');
+  
+  // Simulate delay
+  setTimeout(() => {
+    showNotification('Documents ready for download!', 'success');
+    // In real implementation: window.location = `/api/loans/${loanId}/documents`;
+  }, 2000);
+}
+
+// ==================== MANUAL PAYMENT RECORDING ====================
+async function recordManualPayment(loanId, amount) {
+  try {
+    const reference = `MANUAL-${Date.now()}`;
+    const response = await apiClient(
+      `/api/admin/loans/${loanId}/record-payment`,
+      'POST',
+      { amount, reference }
+    );
+
+    if (response.success) {
+      showNotification(`Manual payment of KES ${amount} recorded!`, 'success');
+      showLoanDetails(loanId); // Refresh the view
+      
+      // Refresh related views
+      showPendingPayments();
+      if (currentCustomerId) loadCustomerProfile(currentCustomerId);
+    }
+  } catch (error) {
+    showError(`Failed to record payment: ${error.message}`);
+  }
 }

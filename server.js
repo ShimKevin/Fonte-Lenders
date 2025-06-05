@@ -370,6 +370,7 @@ const tokenSchema = new mongoose.Schema({
   purpose: { type: String, enum: ['refresh', 'password_reset'], default: 'refresh' }
 });
 
+
 // ==================== SCHEMA HOOKS AND METHODS ====================
 customerSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
@@ -987,7 +988,18 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
 
     // Update customer
     const customer = await Customer.findById(loan.userId);
-    customer.currentLoanBalance += principal;
+    
+    // Check available credit
+    const availableLimit = customer.maxLoanLimit - customer.currentLoanBalance;
+    if (totalAmount > availableLimit) {
+      return res.status(400).json({
+        success: false,
+        message: `Approving would exceed credit limit. Available: KES ${availableLimit.toLocaleString()}, Needed: KES ${totalAmount.toLocaleString()}`
+      });
+    }
+
+    // Update customer balance with TOTAL AMOUNT (principal + interest)
+    customer.currentLoanBalance += totalAmount;
     customer.activeLoan = loan._id;
 
     await Promise.all([loan.save(), customer.save()]);
@@ -1523,6 +1535,108 @@ app.get('/api/admin/payments', authenticateAdmin, async (req, res) => {
       success: false,
       message: 'Failed to fetch payments'
     });
+  }
+});
+
+// Record manual payment
+app.post('/api/admin/loans/:id/record-payment', authenticateAdmin, async (req, res) => {
+  try {
+    const { amount, reference } = req.body;
+    const loanId = req.params.id;
+    
+    // Find the loan
+    const loan = await LoanApplication.findById(loanId);
+    if (!loan) {
+      return res.status(404).json({ success: false, message: 'Loan not found' });
+    }
+    
+    // Create payment record
+    const payment = new Payment({
+      userId: loan.userId,
+      loanId: loan._id,
+      amount,
+      reference: reference || `MANUAL-${Date.now()}`,
+      paymentMethod: 'Manual',
+      status: 'approved'
+    });
+    
+    // Update loan status
+    loan.amountPaid = (loan.amountPaid || 0) + amount;
+    if (loan.amountPaid >= loan.totalAmount) {
+      loan.status = 'completed';
+      
+      // Update customer
+      await Customer.findByIdAndUpdate(loan.userId, {
+        $set: { activeLoan: null },
+        $inc: { currentLoanBalance: -amount }
+      });
+    } else {
+      await Customer.findByIdAndUpdate(loan.userId, {
+        $inc: { currentLoanBalance: -amount }
+      });
+    }
+    
+    // Save changes
+    await Promise.all([payment.save(), loan.save()]);
+    
+    res.json({ 
+      success: true,
+      message: `Payment of KES ${amount} recorded`,
+      newBalance: loan.totalAmount - loan.amountPaid
+    });
+    
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Download loan documents
+app.get('/api/admin/loans/:id/documents', authenticateAdmin, async (req, res) => {
+  try {
+    const loan = await LoanApplication.findById(req.params.id);
+    if (!loan) {
+      return res.status(404).json({ success: false, message: 'Loan not found' });
+    }
+    
+    // In a real implementation, this would fetch from storage
+    const documents = [
+      { name: 'Loan Agreement', url: `/api/documents/${loan._id}/agreement` },
+      { name: 'Repayment Schedule', url: `/api/documents/${loan._id}/schedule` }
+    ];
+    
+    res.json({ success: true, documents });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Generate reports
+app.get('/api/admin/reports/:type', authenticateAdmin, async (req, res) => {
+  try {
+    const { type } = req.params;
+    const { startDate, endDate } = req.query;
+    
+    // In a real implementation, this would query the database
+    const reportData = {
+      title: `${type.charAt(0).toUpperCase() + type.slice(1)} Report`,
+      startDate,
+      endDate,
+      totalLoans: 15,
+      newCustomers: 8,
+      repaymentsReceived: 120000,
+      defaultRate: 5.2,
+      dailyActivity: [
+        { date: '2023-06-01', newLoans: 3, repayments: 30000, defaults: 0 },
+        { date: '2023-06-02', newLoans: 2, repayments: 25000, defaults: 1 }
+      ]
+    };
+    
+    res.json({ 
+      success: true,
+      data: reportData
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
