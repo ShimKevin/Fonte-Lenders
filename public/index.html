@@ -3,21 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fonte Lenders - Financial Solutions</title>
+    <title>Fonte Lenders - Premium Financial Solutions</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Raleway:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800;900&family=Raleway:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --gold: #FFD700;
             --dark-gold: #D4AF37;
             --light-gold: #FFEC8B;
-            --dark-bg: #121212;
+            --dark-bg: #0a0a0a;
+            --card-bg: #121212;
             --white: #FFFFFF;
             --light-gray: #f0f0f0;
             --success: #4CAF50;
             --whatsapp-green: #25D366;
-            --sky-blue: #87CEEB;
-            --darker-blue: #1e3c72;
+            --darker-blue: #0c1629;
+            --text-light: #e0e0e0;
+            --text-gray: #b0b0b0;
         }
 
         * {
@@ -26,32 +28,45 @@
             padding: 0;
         }
 
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
-            background: linear-gradient(135deg, var(--darker-blue), #2a5298);
+            background: linear-gradient(135deg, var(--dark-bg), #070707);
             font-family: 'Raleway', sans-serif;
-            color: #333;
+            color: var(--text-light);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
             padding: 0;
             overflow-x: hidden;
+            position: relative;
         }
 
-        /* Header with skyline background */
+        /* Particles background */
+        #particles-js {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        /* Skyline header with animation */
         .header-container {
             width: 100%;
-            background: linear-gradient(to bottom, rgba(30, 60, 114, 0.9), rgba(26, 42, 78, 0.7)), 
-                        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" preserveAspectRatio="none"><path d="M0,0 L0,180 Q300,220 600,180 T1200,180 L1200,0 Z" fill="%231a2a4e"/></svg>'), 
-                        linear-gradient(to bottom, #0a1a3a, #1e3c72);
-            background-size: 100% 100%, 100% auto, auto;
-            background-repeat: no-repeat;
-            background-position: bottom;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.8)), 
+                        url('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1950&q=80');
+            background-size: cover;
+            background-position: center 70%;
+            background-attachment: fixed;
             text-align: center;
-            padding: 80px 20px 150px;
-            margin-bottom: -70px;
+            padding: 80px 20px 180px;
+            margin-bottom: -100px;
             position: relative;
             z-index: 10;
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.7);
         }
 
         .header-container::after {
@@ -61,16 +76,17 @@
             left: 0;
             width: 100%;
             height: 100px;
-            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none"><path d="M0,0 Q600,120 1200,0 L1200,120 L0,120 Z" fill="%23ffffff"/></svg>');
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none"><path d="M0,0 Q600,120 1200,0 L1200,120 L0,120 Z" fill="%230a0a0a"/></svg>');
             background-size: 100% 100%;
             z-index: 2;
         }
 
         .logo-container {
             text-align: center;
-            padding: 30px 20px 50px;
+            padding: 50px 20px 70px;
             position: relative;
             z-index: 20;
+            perspective: 1000px;
         }
 
         @keyframes pulse {
@@ -82,17 +98,19 @@
         .logo {
             font-family: 'Montserrat', sans-serif;
             font-size: 5.5rem;
-            font-weight: 800;
-            background: linear-gradient(120deg, var(--gold), var(--dark-gold));
+            font-weight: 900;
+            background: linear-gradient(120deg, var(--gold), var(--white));
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
             margin-bottom: 20px;
             letter-spacing: 3px;
-            animation: pulse 3s infinite;
+            animation: pulse 3s infinite, float 6s ease-in-out infinite;
             text-transform: uppercase;
             position: relative;
             display: inline-block;
+            transform-style: preserve-3d;
+            text-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
         }
 
         .logo::after {
@@ -105,6 +123,18 @@
             background: linear-gradient(90deg, transparent, var(--gold), transparent);
             border-radius: 50%;
             filter: blur(2px);
+            animation: glow 3s infinite;
+        }
+
+        @keyframes glow {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotateX(5deg); }
+            50% { transform: translateY(-15px) rotateX(-5deg); }
         }
 
         .slogan {
@@ -117,7 +147,12 @@
             opacity: 0.95;
             text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
             position: relative;
-            animation: slideIn 1.2s ease-out, float 4s ease-in-out infinite 1.2s;
+            animation: slideIn 1.2s ease-out, float 5s ease-in-out infinite 1.2s;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 215, 0, 0.2);
         }
 
         @keyframes slideIn {
@@ -125,9 +160,22 @@
             to { transform: translateY(0); opacity: 1; }
         }
 
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
+        .scroll-down {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: var(--light-gold);
+            font-size: 2.5rem;
+            animation: bounce 2s infinite;
+            z-index: 30;
+            cursor: pointer;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+            40% {transform: translateY(-20px);}
+            60% {transform: translateY(-10px);}
         }
 
         .container {
@@ -135,39 +183,41 @@
             max-width: 1200px;
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 30px;
-            padding: 60px 20px 30px;
+            gap: 40px;
+            padding: 120px 20px 60px;
             position: relative;
             z-index: 5;
         }
 
         .card {
-            background: var(--white);
+            background: var(--card-bg);
             border-radius: 15px;
             overflow: hidden;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
             transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             position: relative;
             opacity: 0;
             transform: translateY(30px);
-            animation: fadeInUp 0.8s forwards;
-            border: 1px solid rgba(255, 215, 0, 0.3);
+            border: 1px solid rgba(255, 215, 0, 0.1);
+            transform-style: preserve-3d;
+            perspective: 1000px;
         }
 
-        .card:nth-child(1) { animation-delay: 0.1s; }
-        .card:nth-child(2) { animation-delay: 0.2s; }
-        .card:nth-child(3) { animation-delay: 0.3s; }
+        .card.visible {
+            animation: fadeInUp 0.8s forwards;
+        }
 
         @keyframes fadeInUp {
             to {
                 opacity: 1;
-                transform: translateY(0);
+                transform: translateY(0) rotateX(0);
             }
         }
 
         .card:hover {
-            transform: translateY(-15px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+            transform: translateY(-15px) rotateX(5deg);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.6), 0 0 30px rgba(255, 215, 0, 0.2);
+            border: 1px solid rgba(255, 215, 0, 0.3);
         }
 
         .card-header {
@@ -175,15 +225,31 @@
             color: var(--white);
             padding: 25px 20px;
             text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(rgba(255,255,255,0.1), transparent);
+            transform: rotate(30deg);
+            z-index: 1;
         }
 
         .card-title {
             font-size: 1.8rem;
             margin-bottom: 10px;
-            font-weight: 600;
+            font-weight: 700;
             letter-spacing: 1px;
             color: var(--white);
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            position: relative;
+            z-index: 2;
         }
 
         .card-subtitle {
@@ -191,18 +257,22 @@
             opacity: 0.9;
             font-weight: 300;
             color: var(--white);
+            position: relative;
+            z-index: 2;
         }
 
         .card-body {
             padding: 30px;
-            color: #222;
-            background: #f9f9f9;
+            color: var(--text-light);
+            position: relative;
+            z-index: 2;
         }
 
         .card-body p {
             margin-bottom: 20px;
             line-height: 1.7;
             font-size: 1.05rem;
+            color: var(--text-light);
         }
 
         .timeline {
@@ -218,6 +288,7 @@
             height: 100%;
             width: 2px;
             background: var(--gold);
+            box-shadow: 0 0 10px var(--gold);
         }
 
         .timeline-item {
@@ -235,8 +306,9 @@
             height: 15px;
             border-radius: 50%;
             background: var(--gold);
-            border: 3px solid white;
-            box-shadow: 0 0 0 2px var(--gold);
+            border: 3px solid var(--card-bg);
+            box-shadow: 0 0 0 2px var(--gold), 0 0 10px var(--gold);
+            z-index: 2;
         }
 
         .timeline-date {
@@ -251,10 +323,12 @@
             padding: 15px;
             border-radius: 8px;
             border-left: 3px solid var(--gold);
+            backdrop-filter: blur(5px);
+            transform: translateZ(20px);
         }
 
         .timeline-content h3 {
-            color: var(--dark-gold);
+            color: var(--light-gold);
             margin-bottom: 8px;
         }
 
@@ -273,6 +347,25 @@
             margin: 15px 0;
             position: relative;
             overflow: hidden;
+            transform: translateZ(0);
+            z-index: 2;
+        }
+
+        .btn::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.1);
+            transform: translateX(-100%);
+            transition: transform 0.4s ease;
+            z-index: -1;
+        }
+
+        .btn:hover::after {
+            transform: translateX(0);
         }
 
         .btn-primary {
@@ -288,8 +381,8 @@
         }
 
         .btn-secondary {
-            background: var(--white);
-            color: #222;
+            background: transparent;
+            color: var(--gold);
             border: 2px solid var(--gold);
         }
 
@@ -308,6 +401,14 @@
             box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
         }
 
+        .highlight {
+            background: linear-gradient(120deg, rgba(255, 215, 0, 0.2), rgba(255, 215, 0, 0.1));
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            color: var(--gold);
+        }
+
         /* FOOTER WITH HAPPY CUSTOMERS */
         footer {
             width: 100%;
@@ -315,7 +416,10 @@
             margin-top: 50px;
             text-align: center;
             overflow: hidden;
-            padding-top: 100px;
+            padding-top: 150px;
+            background: var(--dark-bg);
+            z-index: 10;
+            border-top: 1px solid rgba(255, 215, 0, 0.1);
         }
 
         .footer-background {
@@ -324,10 +428,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.9)),
-                        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="none"><rect width="1200" height="800" fill="%231a1a1a"/></svg>');
-            background-size: cover;
-            background-position: center;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.9));
             z-index: -2;
         }
 
@@ -337,12 +438,12 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.7)), 
+            background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.8)), 
                         url('https://images.unsplash.com/photo-1590650153855-d9e808231d41?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&q=80');
             background-size: cover;
-            background-position: center;
+            background-position: center 30%;
             z-index: -1;
-            opacity: 0.9;
+            opacity: 0.7;
         }
 
         .footer-content {
@@ -360,10 +461,9 @@
             margin: 30px 0;
         }
 
-        /* Updated for phone numbers to be adjacent on mobile */
         .phone-container {
             display: flex;
-            flex-wrap: nowrap;
+            flex-wrap: wrap;
             justify-content: center;
             gap: 15px;
         }
@@ -371,24 +471,26 @@
         .contact-item {
             display: flex;
             align-items: center;
-            background: rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.08);
             border-radius: 30px;
             padding: 15px 30px;
             transition: all 0.3s ease;
-            border: 1px solid rgba(255, 215, 0, 0.5);
+            border: 1px solid rgba(255, 215, 0, 0.3);
             backdrop-filter: blur(5px);
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            transform: translateZ(0);
         }
 
         .contact-item:hover {
-            background: rgba(255, 215, 0, 0.2);
+            background: rgba(255, 215, 0, 0.15);
             transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
         }
 
         .contact-number {
             font-size: 1.2rem;
             margin-right: 15px;
-            color: var(--white);
+            color: var(--light-gold);
             font-weight: 500;
         }
 
@@ -415,12 +517,13 @@
 
         .copyright {
             margin-top: 40px;
-            color: rgba(255, 255, 255, 0.8);
+            color: rgba(255, 255, 255, 0.6);
             font-size: 0.95rem;
             padding: 15px;
-            background: rgba(0, 0, 0, 0.4);
+            background: rgba(0, 0, 0, 0.3);
             border-radius: 10px;
             display: inline-block;
+            border: 1px solid rgba(255, 215, 0, 0.1);
         }
 
         .social-links {
@@ -434,20 +537,22 @@
             width: 50px;
             height: 50px;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.08);
             display: flex;
             align-items: center;
             justify-content: center;
             color: var(--gold);
             font-size: 1.5rem;
             transition: all 0.3s;
-            border: 1px solid rgba(255, 215, 0, 0.5);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            transform: translateZ(0);
         }
 
         .social-icon:hover {
             background: var(--gold);
             color: #000;
-            transform: translateY(-5px);
+            transform: translateY(-5px) scale(1.1);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
         }
 
         .whatsapp-float {
@@ -469,6 +574,7 @@
             font-size: 17px;
             font-weight: 600;
             animation: pulse 2s infinite;
+            transform: translateZ(0);
         }
 
         .whatsapp-float:hover {
@@ -479,13 +585,6 @@
         .whatsapp-float i {
             margin-right: 10px;
             font-size: 24px;
-        }
-
-        .highlight {
-            background: linear-gradient(120deg, rgba(255, 215, 0, 0.2), rgba(255, 215, 0, 0.1));
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: 600;
         }
 
         /* Responsive Design */
@@ -502,7 +601,7 @@
         @media (max-width: 768px) {
             .container {
                 grid-template-columns: 1fr;
-                padding: 40px 20px 20px;
+                padding: 80px 20px 40px;
             }
             
             .card {
@@ -528,20 +627,11 @@
             }
             
             .header-container {
-                padding: 60px 20px 130px;
+                padding: 60px 20px 150px;
             }
             
-            /* Phone numbers adjacent on mobile */
             .phone-container {
-                flex-direction: row;
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-            
-            .phone-container .contact-item {
-                width: auto;
-                max-width: none;
-                margin: 5px;
+                flex-direction: column;
             }
         }
 
@@ -552,6 +642,7 @@
             
             .slogan {
                 font-size: 1.2rem;
+                padding: 15px;
             }
             
             .card-title {
@@ -563,7 +654,8 @@
             }
             
             .header-container {
-                padding: 40px 15px 100px;
+                padding: 40px 15px 120px;
+                background-position: center 60%;
             }
             
             .whatsapp-float {
@@ -573,18 +665,11 @@
                 right: 20px;
             }
             
-            /* Phone numbers adjacent on small screens */
-            .phone-container {
-                flex-direction: row;
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-            
-            .phone-container .contact-item {
-                width: 45%;
-                min-width: 150px;
-                margin: 5px;
-                padding: 12px 15px;
+            .contact-item {
+                width: 100%;
+                min-width: auto;
+                margin: 5px 0;
+                padding: 12px 20px;
             }
             
             .contact-number {
@@ -597,17 +682,29 @@
                 height: 36px;
                 font-size: 16px;
             }
+            
+            .footer-content {
+                padding: 40px 15px 30px;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- Particles background -->
+    <div id="particles-js"></div>
+    
+    <!-- Header with skyscraper background -->
     <div class="header-container">
         <div class="logo-container">
             <div class="logo">FONTE LENDERS</div>
             <div class="slogan">Your Partner In Need - Providing Financial Solutions When You Need Them Most</div>
         </div>
+        <div class="scroll-down" onclick="document.querySelector('.container').scrollIntoView({ behavior: 'smooth' })">
+            <i class="fas fa-chevron-down"></i>
+        </div>
     </div>
 
+    <!-- Main content cards -->
     <div class="container">
         <!-- Our History Card -->
         <div class="card">
@@ -714,12 +811,13 @@
         </div>
     </div>
     
+    <!-- Footer section -->
     <footer>
         <div class="footer-background"></div>
         <div class="customer-image"></div>
         
         <div class="footer-content">
-            <h2 style="font-size: 2.2rem; margin-bottom: 20px; color: var(--gold);">Connect With Us</h2>
+            <h2 style="font-size: 2.2rem; margin-bottom: 20px; color: var(--gold); text-shadow: 0 2px 10px rgba(0,0,0,0.5);">Connect With Us</h2>
             
             <div class="social-links">
                 <a href="#" class="social-icon"><i class="fab fa-facebook-f"></i></a>
@@ -771,9 +869,69 @@
         <i class="fab fa-whatsapp"></i> Chat with us
     </a>
     
+    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
     <script>
-        // Simple animation for page elements
+        // Initialize particles background
+        particlesJS("particles-js", {
+            particles: {
+                number: { value: 80, density: { enable: true, value_area: 800 } },
+                color: { value: "#FFD700" },
+                shape: { type: "circle" },
+                opacity: { value: 0.5, random: true },
+                size: { value: 3, random: true },
+                line_linked: {
+                    enable: true,
+                    distance: 150,
+                    color: "#FFD700",
+                    opacity: 0.2,
+                    width: 1
+                },
+                move: {
+                    enable: true,
+                    speed: 1,
+                    direction: "none",
+                    random: true,
+                    straight: false,
+                    out_mode: "out",
+                    bounce: false
+                }
+            },
+            interactivity: {
+                detect_on: "canvas",
+                events: {
+                    onhover: { enable: true, mode: "grab" },
+                    onclick: { enable: true, mode: "push" },
+                    resize: true
+                }
+            },
+            retina_detect: true
+        });
+
+        // Scroll animation for cards
         document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.card');
+            
+            // Initially set cards to invisible
+            cards.forEach(card => {
+                card.classList.remove('visible');
+            });
+            
+            // Create observer to animate cards when they come into view
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                    }
+                });
+            }, {
+                threshold: 0.1
+            });
+            
+            // Observe each card
+            cards.forEach(card => {
+                observer.observe(card);
+            });
+
             // Add ripple effect to buttons
             const buttons = document.querySelectorAll('.btn');
             buttons.forEach(button => {
