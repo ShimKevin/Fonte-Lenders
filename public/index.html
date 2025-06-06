@@ -409,7 +409,7 @@
             color: var(--gold);
         }
 
-        /* FOOTER WITH HAPPY CUSTOMERS - UPDATED */
+        /* FOOTER WITH HAPPY CUSTOMERS - ENHANCED */
         footer {
             width: 100%;
             position: relative;
@@ -441,7 +441,8 @@
             background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.8)), 
                         url('https://images.unsplash.com/photo-1590650153855-d9e808231d41?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&q=80');
             background-size: cover;
-            background-position: center 30%;
+            background-position: center center;
+            background-repeat: no-repeat;
             z-index: -1;
             opacity: 0.7;
         }
@@ -457,7 +458,7 @@
             display: flex;
             justify-content: center;
             flex-wrap: wrap;
-            gap: 25px;
+            gap: 15px;
             margin: 30px 0;
         }
 
@@ -473,12 +474,14 @@
             align-items: center;
             background: rgba(255, 255, 255, 0.08);
             border-radius: 30px;
-            padding: 15px 30px;
+            padding: 12px 20px;
             transition: all 0.3s ease;
             border: 1px solid rgba(255, 215, 0, 0.3);
             backdrop-filter: blur(5px);
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
             transform: translateZ(0);
+            min-width: 200px;
+            max-width: 100%;
         }
 
         .contact-item:hover {
@@ -488,26 +491,28 @@
         }
 
         .contact-number {
-            font-size: 1.2rem;
-            margin-right: 15px;
+            font-size: 1.1rem;
+            margin-right: 12px;
             color: var(--light-gold);
             font-weight: 500;
+            white-space: nowrap;
         }
 
         .call-btn {
             background-color: var(--success);
             color: white;
             border: none;
-            width: 42px;
-            height: 42px;
+            width: 38px;
+            height: 38px;
             border-radius: 50%;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.3s;
-            font-size: 18px;
+            font-size: 16px;
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
         }
 
         .call-btn:hover {
@@ -587,7 +592,7 @@
             font-size: 24px;
         }
 
-        /* Responsive Design - UPDATED FOR FOOTER */
+        /* Responsive Design */
         @media (max-width: 992px) {
             .logo {
                 font-size: 4.5rem;
@@ -609,15 +614,7 @@
             }
             
             .contact-container {
-                flex-direction: row;
-                flex-wrap: wrap;
-                gap: 15px;
-            }
-            
-            .contact-item {
-                width: calc(50% - 20px);
-                min-width: 260px;
-                padding: 12px 20px;
+                gap: 10px;
             }
             
             .logo {
@@ -637,20 +634,20 @@
                 gap: 10px;
             }
             
-            .customer-image {
-                background-position: center 40%;
-            }
-        }
-
-        @media (max-width: 600px) {
             .contact-item {
-                width: 100%;
-                min-width: auto;
+                padding: 10px 15px;
+                min-width: 180px;
             }
             
-            .phone-container {
-                flex-direction: column;
-                align-items: center;
+            .contact-number {
+                font-size: 1rem;
+                margin-right: 10px;
+            }
+            
+            .call-btn {
+                width: 34px;
+                height: 34px;
+                font-size: 15px;
             }
         }
 
@@ -684,21 +681,36 @@
                 right: 20px;
             }
             
+            .contact-container {
+                flex-direction: row;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                padding: 10px 0;
+                justify-content: flex-start;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+            
+            .contact-container::-webkit-scrollbar {
+                display: none;
+            }
+            
             .contact-item {
-                width: 100%;
-                margin: 5px 0;
-                padding: 12px 20px;
+                flex: 0 0 auto;
+                min-width: calc(50% - 10px);
+                margin: 0 5px;
+                padding: 10px 15px;
             }
             
             .contact-number {
-                font-size: 1rem;
-                margin-right: 10px;
+                font-size: 0.95rem;
+                margin-right: 8px;
             }
             
             .call-btn {
-                width: 36px;
-                height: 36px;
-                font-size: 16px;
+                width: 32px;
+                height: 32px;
+                font-size: 14px;
             }
             
             .footer-content {
@@ -707,6 +719,16 @@
             
             .customer-image {
                 background-position: center 45%;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .contact-item {
+                min-width: calc(100% - 20px);
+            }
+            
+            .contact-number {
+                font-size: 0.9rem;
             }
         }
     </style>
@@ -833,7 +855,7 @@
         </div>
     </div>
     
-    <!-- Updated Footer section -->
+    <!-- Enhanced Footer section -->
     <footer>
         <div class="footer-background"></div>
         <div class="customer-image"></div>
