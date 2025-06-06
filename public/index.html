@@ -409,7 +409,7 @@
             color: var(--gold);
         }
 
-        /* FOOTER WITH HAPPY CUSTOMERS */
+        /* FOOTER WITH HAPPY CUSTOMERS - UPDATED */
         footer {
             width: 100%;
             position: relative;
@@ -587,7 +587,7 @@
             font-size: 24px;
         }
 
-        /* Responsive Design */
+        /* Responsive Design - UPDATED FOR FOOTER */
         @media (max-width: 992px) {
             .logo {
                 font-size: 4.5rem;
@@ -609,13 +609,15 @@
             }
             
             .contact-container {
-                flex-direction: column;
-                align-items: center;
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: 15px;
             }
             
             .contact-item {
-                width: 100%;
-                max-width: 350px;
+                width: calc(50% - 20px);
+                min-width: 260px;
+                padding: 12px 20px;
             }
             
             .logo {
@@ -631,7 +633,24 @@
             }
             
             .phone-container {
+                flex-direction: row;
+                gap: 10px;
+            }
+            
+            .customer-image {
+                background-position: center 40%;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .contact-item {
+                width: 100%;
+                min-width: auto;
+            }
+            
+            .phone-container {
                 flex-direction: column;
+                align-items: center;
             }
         }
 
@@ -667,7 +686,6 @@
             
             .contact-item {
                 width: 100%;
-                min-width: auto;
                 margin: 5px 0;
                 padding: 12px 20px;
             }
@@ -685,6 +703,10 @@
             
             .footer-content {
                 padding: 40px 15px 30px;
+            }
+            
+            .customer-image {
+                background-position: center 45%;
             }
         }
     </style>
@@ -811,7 +833,7 @@
         </div>
     </div>
     
-    <!-- Footer section -->
+    <!-- Updated Footer section -->
     <footer>
         <div class="footer-background"></div>
         <div class="customer-image"></div>
