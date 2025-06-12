@@ -260,16 +260,16 @@
             </div>
 
             <div class="form-group">
-                <label for="email">Email</label>
+                <label for="email">Email(Must)</label>
                 <input type="email" id="email" placeholder="Your email address">
                 <div class="error-message" id="email-error">Please enter a valid email address</div>
             </div>
 
             <div class="form-group">
                 <label for="password">Password</label>
-                <input type="password" id="password" required minlength="6" placeholder="Create a password (min 6 characters)">
+                <input type="password" id="password" required minlength="8" placeholder="Create a password (min 8 characters)">
                 <button type="button" class="password-toggle" id="togglePassword">👁️</button>
-                <div class="error-message" id="password-error">Password must be at least 6 characters</div>
+                <div class="error-message" id="password-error">Password must be at least 8 characters</div>
             </div>
 
             <div class="form-group">
@@ -358,7 +358,7 @@
             });
 
             document.getElementById('password').addEventListener('input', function() {
-                validateField(this, 'password-error', value => value.length >= 6);
+                validateField(this, 'password-error', value => value.length >= 8);
                 // Also validate confirm password when password changes
                 const confirmPassword = document.getElementById('confirmPassword');
                 if (confirmPassword.value) {
@@ -387,7 +387,7 @@
                     ['idNumber', 'idNumber-error', val => /^\d{8}$/.test(val)],
                     ['phone', 'phone-error', val => /^\d{10}$/.test(val)],
                     ['email', 'email-error', val => val === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)],
-                    ['password', 'password-error', val => val.length >= 6],
+                    ['password', 'password-error', val => val.length >= 8],
                     ['confirmPassword', 'confirmPassword-error', val => val === document.getElementById('password').value]
                 ];
 

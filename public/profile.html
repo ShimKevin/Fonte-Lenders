@@ -684,7 +684,7 @@
         
         return `
             <div class="profile-header">
-                <h2>${user.fullName}'s Profile</h2>
+                <h2>${user.fullName}'s account</h2>
                 <div class="status-badge status-${user.verificationStatus}">
                     ${user.verificationStatus.toUpperCase()}
                 </div>
@@ -717,7 +717,7 @@
                                 <input type="number" id="paymentAmount" placeholder="Enter amount paid">
                             </div>
                             <button class="btn payment-btn submit-payment-btn">
-                                <i class="fas fa-paper-plane"></i> Submit Payment for Approval
+                                <i class="fas fa-paper-plane"></i> Submit Payment for confirmation
                             </button>
                         </div>
                     ` : ''}
@@ -899,7 +899,7 @@
                 
                 <div class="payment-note">
                     <i class="fas fa-exclamation-circle"></i>
-                    <span>After payment, submit your transaction details using the form below for approval</span>
+                    <span>After payment, submit your transaction details using the form below for confirmation</span>
                 </div>
             </div>
         `;
