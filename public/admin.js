@@ -14,16 +14,233 @@ function formatDate(dateString) {
   });
 }
 
-// Initialize Socket.IO connection
+// ==================== SOCKET.IO CONNECTION ====================
+// Initialize Socket.IO connection with enhanced configuration
 const socket = io(API_BASE_URL, {
   auth: {
     token: localStorage.getItem('adminToken')
+  },
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  autoConnect: true // This ensures it tries to connect immediately
+});
+
+// Add error handlers
+socket.on('connect_error', (err) => {
+  debugLog(`Socket connection error: ${err.message}`);
+  showNotification('Connection error. Attempting to reconnect...', 'warning');
+});
+
+socket.on('disconnect', (reason) => {
+  debugLog(`Socket disconnected: ${reason}`);
+  if (reason === 'io server disconnect') {
+    // Auto-reconnect if server drops connection
+    socket.connect();
+    showNotification('Reconnecting to server...', 'info');
   }
 });
 
+// Global variables
 let currentAdmin = null;
 let currentLoanId = null;
 let currentCustomerId = null; // Track currently viewed customer
+
+// ==================== SOCKET EVENT LISTENERS ====================
+// Listen for loan updates
+socket.on('loanUpdate', (data) => {
+    debugLog(`Received loanUpdate: ${JSON.stringify(data)}`);
+    
+    // Refresh all relevant sections
+    if (currentCustomerId === data.userId) {
+        loadCustomerProfile(currentCustomerId);
+    }
+    
+    showLoans('pending');
+    showLoans('active');
+    showPendingPayments();
+    
+    // Show notification
+    showNotification(`Loan ${data.loanId} ${data.status} by ${data.adminName}`, 'info');
+});
+
+// Listen for payment updates
+socket.on('paymentUpdate', (data) => {
+    debugLog(`Received paymentUpdate: ${JSON.stringify(data)}`);
+    
+    // Refresh all relevant sections
+    if (currentCustomerId === data.userId) {
+        loadCustomerProfile(currentCustomerId);
+    }
+    
+    showPendingPayments();
+    
+    if (currentLoanId === data.loanId) {
+        showLoanDetails(data.loanId);
+    }
+    
+    // Show notification
+    showNotification(`Payment ${data.status} for loan ${data.loanId}`, 'info');
+});
+
+// Listen for limit updates
+socket.on('limitUpdate', (data) => {
+    debugLog(`Received limitUpdate: ${JSON.stringify(data)}`);
+    showNotification(`Loan limit updated for customer`, 'info');
+    
+    // Refresh customer view if we're looking at it
+    if (currentCustomerId === data.customerId) {
+        loadCustomerProfile(data.customerId);
+    }
+});
+
+// Listen for loan approval events
+socket.on('loanApproved', (data) => {
+    debugLog(`Received loanApproved event: ${JSON.stringify(data)}`);
+    
+    // Refresh customer profile if viewing the customer
+    if (currentCustomerId === data.userId) {
+        loadCustomerProfile(currentCustomerId);
+        debugLog(`Refreshed customer profile for ${currentCustomerId}`);
+    }
+    
+    // Refresh loan lists
+    const currentStatus = document.getElementById('loans-section-title')?.textContent || '';
+    if (currentStatus.includes('Pending') || currentStatus.includes('Active')) {
+        showLoans('pending');
+        debugLog('Refreshed loans list after approval');
+    }
+});
+
+// Listen for payment approved events
+socket.on('paymentApproved', (data) => {
+    debugLog(`Received paymentApproved: ${JSON.stringify(data)}`);
+    showNotification(`Payment of KES ${data.amount} approved for ${data.customerName}`, 'success');
+    
+    if (currentCustomerId === data.userId) {
+        loadCustomerProfile(data.userId);
+    }
+    
+    if (currentLoanId === data.loanId) {
+        showLoanDetails(data.loanId);
+    }
+});
+
+// Listen for payment rejected events
+socket.on('paymentRejected', (data) => {
+    debugLog(`Received paymentRejected: ${JSON.stringify(data)}`);
+    showNotification(`Payment rejected by ${data.adminName}`, 'warning');
+});
+
+// Listen for admin notifications
+socket.on('adminNotification', (data) => {
+    debugLog(`Received admin notification: ${JSON.stringify(data)}`);
+    showNotification(data.message, data.type || 'info');
+});
+
+// Listen for reconnection events
+socket.on('reconnect', (attemptNumber) => {
+    debugLog(`Socket reconnected after ${attemptNumber} attempts`);
+    showNotification('Connection restored', 'success');
+    
+    // Re-authenticate after reconnection
+    if (currentAdmin) {
+        socket.emit('authenticate', { token: localStorage.getItem('adminToken') });
+    }
+});
+
+// Listen for reconnect failed events
+socket.on('reconnect_failed', () => {
+    debugLog('Socket reconnection failed');
+    showNotification('Failed to reconnect to server. Please refresh the page.', 'error');
+});
+
+// ==================== API CLIENT (UTILITY FUNCTION) ====================
+async function apiClient(endpoint, method = 'GET', body = null) {
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+        debugLog('No token found - logging out');
+        logout();
+        throw new Error('Authentication required');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+    try {
+        debugLog(`API request: ${method} ${endpoint}`);
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: body ? JSON.stringify(body) : null,
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+        
+        // Handle 401 Unauthorized responses
+        if (response.status === 401) {
+            debugLog('Token expired - attempting refresh');
+            try {
+                // Call refresh token endpoint
+                const refreshResponse = await fetch(`${API_BASE_URL}/api/admin/refresh-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        refreshToken: localStorage.getItem('adminRefreshToken') 
+                    })
+                });
+
+                if (refreshResponse.ok) {
+                    const { token: newToken, refreshToken } = await refreshResponse.json();
+                    localStorage.setItem('adminToken', newToken);
+                    localStorage.setItem('adminRefreshToken', refreshToken);
+                    
+                    // Retry original request with new token
+                    return apiClient(endpoint, method, body);
+                } else {
+                    throw new Error('Failed to refresh token');
+                }
+            } catch (refreshError) {
+                debugLog(`Token refresh failed: ${refreshError.message}`);
+                logout();
+                throw new Error('Session expired. Please login again.');
+            }
+        }
+        
+        // Handle 204 No Content responses
+        if (response.status === 204) {
+            return { success: true };
+        }
+        
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            const text = await response.text();
+            debugLog(`Non-JSON response: ${text}`);
+            throw new Error('Invalid server response');
+        }
+
+        const data = await response.json();
+        debugLog(`API response: ${response.status} ${JSON.stringify(data)}`);
+        
+        if (!response.ok) {
+            throw new Error(data.message || `Request failed with status ${response.status}`);
+        }
+        
+        return data;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            debugLog(`API timeout: ${endpoint}`);
+            throw new Error('Request timed out');
+        }
+        debugLog(`API error: ${error.message}`);
+        throw error;
+    }
+}
 
 // ==================== DEBUG LOGGER ====================
 function debugLog(message) {
@@ -718,8 +935,16 @@ async function showLoans(status, page = 1) {
     try {
         showLoading('loans');
         debugLog(`Loading ${status} loans, page ${page}`);
+        
+        let queryParams = `status=${status}&page=${page}&limit=20`;
+        
+        // Special handling for active loans to ensure they're not filtered prematurely
+        if (status === 'active') {
+            queryParams += '&activeOnly=true';
+        }
+        
         const response = await apiClient(
-            `/api/admin/loan-applications?status=${status}&page=${page}&limit=20`
+            `/api/admin/loan-applications?${queryParams}`
         );
         
         // For active loans, display in card layout

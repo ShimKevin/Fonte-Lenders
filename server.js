@@ -289,12 +289,15 @@ const loanApplicationSchema = new mongoose.Schema({
   },
   signature: { type: String, required: true },
   verificationStatus: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
-  status: { type: String, enum: ['pending', 'approved', 'rejected', 'active', 'completed'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'approved', 'rejected', 'active', 'completed', 'defaulted'], default: 'pending' },
   adminNotes: String,
   verificationData: Object,
   dueDate: Date,
   approvedAt: Date,
   rejectedAt: Date,
+  actualDueDate: Date,       // Track when loan actually became due
+  markedDefault: Boolean,    // Track if already marked as default
+  lastStatusUpdate: Date,    // Track when status was last updated
   paymentDetails: {
     mode: { type: String, enum: ['M-Pesa'], default: 'M-Pesa' },
     mpesaNumber: String,
@@ -321,6 +324,42 @@ const loanApplicationSchema = new mongoose.Schema({
 // Add indexes for frequent queries
 loanApplicationSchema.index({ userId: 1, status: 1 });
 paymentSchema.index({ userId: 1, status: 1 });
+
+// Add pre-save hook for loan status tracking
+loanApplicationSchema.pre('save', function(next) {
+  if (this.isModified('status') || this.isNew) {
+    this.lastStatusUpdate = new Date();
+  }
+  next();
+});
+
+// Add static method for loan status updates
+loanApplicationSchema.statics.updateLoanStatuses = async function() {
+  const now = new Date();
+  
+  // Update overdue loans that aren't yet marked as default
+  await this.updateMany({
+    status: 'active',
+    dueDate: { $lt: now },
+    markedDefault: { $ne: true }
+  }, {
+    $set: {
+      status: 'defaulted',
+      actualDueDate: now,
+      markedDefault: true
+    }
+  });
+
+  // Complete fully paid loans
+  await this.updateMany({
+    status: 'active',
+    $expr: { $gte: ['$amountPaid', '$totalAmount'] }
+  }, {
+    $set: { status: 'completed' }
+  });
+
+  console.log('Loan status updates completed');
+};
 
 const customerSchema = new mongoose.Schema({
   customerId: { type: String, unique: true, required: true },
@@ -369,7 +408,6 @@ const tokenSchema = new mongoose.Schema({
   expiresAt: { type: Date, required: true, index: { expires: '7d' } },
   purpose: { type: String, enum: ['refresh', 'password_reset'], default: 'refresh' }
 });
-
 
 // ==================== SCHEMA HOOKS AND METHODS ====================
 customerSchema.pre('save', async function(next) {
@@ -423,7 +461,7 @@ app.use(cors({
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token']
 }));
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -438,6 +476,7 @@ app.use((req, res, next) => {
   next();
 });
 
+// Token verification middleware
 app.use((req, res, next) => {
   const authHeader = req.headers.authorization;
   
@@ -461,8 +500,8 @@ app.use((req, res, next) => {
   next();
 });
 
+// Rate limiter
 const loginAttempts = new Map();
-
 const loginRateLimiter = (req, res, next) => {
   if (req.path === '/api/login' && req.method === 'POST') {
     const key = `${req.ip}-${req.body.phone}`;
@@ -485,6 +524,55 @@ const loginRateLimiter = (req, res, next) => {
   next();
 };
 
+// Token refresh endpoint
+app.post('/api/refresh-token', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      return res.status(400).json({ 
+        success: false,
+        code: 'REFRESH_TOKEN_REQUIRED'
+      });
+    }
+
+    const tokenDoc = await Token.findOne({ 
+      token: refreshToken,
+      expiresAt: { $gt: new Date() }
+    }).populate('userId');
+
+    if (!tokenDoc) {
+      return res.status(401).json({
+        success: false,
+        code: 'INVALID_REFRESH_TOKEN'
+      });
+    }
+
+    const newToken = jwt.sign(
+      { id: tokenDoc.userId._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    // Update refresh token expiry
+    tokenDoc.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await tokenDoc.save();
+
+    res.json({
+      success: true,
+      token: newToken,
+      refreshToken: tokenDoc.token
+    });
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    res.status(500).json({
+      success: false,
+      code: 'REFRESH_FAILED'
+    });
+  }
+});
+
+// Authentication middlewares
 const authenticate = async (req, res, next) => {
   if (!req.authenticatedUser) {
     const error = req.tokenError || new Error('Missing authentication');
@@ -492,7 +580,9 @@ const authenticate = async (req, res, next) => {
   }
 
   try {
-    const user = await Customer.findById(req.authenticatedUser).select('-password').lean();
+    const user = await Customer.findById(req.authenticatedUser)
+      .select('-password')
+      .lean();
     
     if (!user) {
       return res.status(401).json({ 
@@ -520,15 +610,16 @@ const authenticateAdmin = async (req, res, next) => {
     });
   }
 
-  const token = authHeader.split(' ')[1];
-  
   try {
+    const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET, {
       ignoreExpiration: false,
       algorithms: ['HS256']
     });
     
-    const admin = await Admin.findById(decoded.id).select('-password').lean();
+    const admin = await Admin.findById(decoded.id)
+      .select('-password')
+      .lean();
     
     if (!admin) {
       return res.status(401).json({ 
@@ -545,16 +636,14 @@ const authenticateAdmin = async (req, res, next) => {
     
     const response = {
       success: false,
-      code: 'ADMIN_AUTH_FAILED',
-      redirect: '/admin/login?error=auth_failed'
+      code: 'AUTH_FAILED',
+      message: 'Session expired. Please log in again.'
     };
 
     if (error.name === 'TokenExpiredError') {
       response.code = 'TOKEN_EXPIRED';
-      response.redirect = '/admin/login?error=token_expired';
     } else if (error.name === 'JsonWebTokenError') {
       response.code = 'INVALID_TOKEN';
-      response.redirect = '/admin/login?error=invalid_token';
     }
 
     return res.status(401).json(response);
@@ -567,15 +656,14 @@ const handleAuthError = (error, res) => {
   const errorResponse = {
     success: false,
     code: 'AUTH_FAILED',
-    redirect: '/login?error=auth_failed'
+    message: 'Authentication failed'
   };
 
   if (error.name === 'TokenExpiredError') {
     errorResponse.code = 'TOKEN_EXPIRED';
-    errorResponse.redirect = '/login?error=token_expired';
+    errorResponse.message = 'Session expired. Please log in again.';
   } else if (error.name === 'JsonWebTokenError') {
     errorResponse.code = 'INVALID_TOKEN';
-    errorResponse.redirect = '/login?error=invalid_token';
   }
 
   return res.status(401).json(errorResponse);
@@ -707,7 +795,7 @@ app.get('/api/admin/metrics', authenticateAdmin, async (req, res) => {
       Customer.countDocuments(),
       LoanApplication.countDocuments({ status: 'active' }),
       LoanApplication.countDocuments({ status: 'pending' }),
-      LoanApplication.countDocuments({ status: 'active', dueDate: { $lt: new Date() } }),
+      LoanApplication.countDocuments({ status: 'defaulted' }),
       LoanApplication.countDocuments({ createdAt: { $gte: oneWeekAgo } }),
       Payment.aggregate([
         { $match: { completedAt: { $gte: oneWeekAgo } } },
@@ -812,6 +900,72 @@ app.get('/api/admin/customers/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
+// ==================== DELETE USER ENDPOINT ====================
+app.delete('/api/admin/customers/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const customerId = req.params.id;
+
+    // 1. Check if customer exists
+    const customer = await Customer.findById(customerId);
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Customer not found'
+      });
+    }
+
+    // 2. Check for active loans
+    const activeLoan = await LoanApplication.findOne({
+      userId: customerId,
+      status: { $in: ['active', 'pending'] }
+    });
+
+    if (activeLoan) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete customer with active or pending loans'
+      });
+    }
+
+    // 3. Start transaction for data consistency
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Delete related data
+      await Payment.deleteMany({ userId: customerId }).session(session);
+      await LoanApplication.deleteMany({ userId: customerId }).session(session);
+      await Token.deleteMany({ userId: customerId }).session(session);
+      
+      // Delete customer
+      await Customer.findByIdAndDelete(customerId).session(session);
+
+      // Commit transaction
+      await session.commitTransaction();
+      session.endSession();
+
+      res.json({
+        success: true,
+        message: 'Customer and all related data deleted successfully'
+      });
+
+    } catch (transactionError) {
+      // Rollback on error
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionError;
+    }
+
+  } catch (error) {
+    console.error('User deletion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete user',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // ==================== UPDATE CUSTOMER LIMIT ENDPOINT ====================
 app.put('/api/admin/customers/:id/limit', authenticateAdmin, async (req, res) => {
   try {
@@ -866,6 +1020,15 @@ app.put('/api/admin/customers/:id/limit', authenticateAdmin, async (req, res) =>
       message: 'Failed to update loan limit' 
     });
   }
+});
+
+// Add middleware for loan application filtering
+app.use('/api/admin/loan-applications', async (req, res, next) => {
+  if (req.method === 'GET' && req.query.status === 'active') {
+    // Ensure we're not filtering out valid active loans
+    req.query.activeOnly = true;
+  }
+  next();
 });
 
 app.get('/api/admin/loan-applications', authenticateAdmin, async (req, res) => {
@@ -975,8 +1138,11 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
       status: 'pending'
     }];
 
-    // Update loan details
+    // Update loan details with proper status tracking
     loan.status = 'active';
+    loan.markedDefault = false;
+    loan.actualDueDate = null;
+    loan.lastStatusUpdate = new Date();
     loan.approvedAt = new Date();
     loan.adminNotes = adminNotes;
     loan.principal = principal;          // Set explicitly
@@ -1116,6 +1282,7 @@ app.patch('/api/admin/loan-applications/:id/reject', authenticateAdmin, async (r
     loan.status = 'rejected';
     loan.rejectedAt = new Date();
     loan.adminNotes = reason;
+    loan.lastStatusUpdate = new Date();
 
     await loan.save();
 
@@ -1352,6 +1519,7 @@ app.patch('/api/admin/payments/:id/approve', authenticateAdmin, async (req, res)
     // Check if loan is fully paid
     if (loan.amountPaid >= loan.totalAmount) {
       loan.status = 'completed';
+      loan.lastStatusUpdate = new Date();
       customer.activeLoan = null;
       
       // Notify user
@@ -1450,6 +1618,7 @@ app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) 
       // Check if loan is fully paid
       if (loan.amountPaid >= loan.totalAmount) {
         loan.status = 'completed';
+        loan.lastStatusUpdate = new Date();
         user.activeLoan = null;
         
         // Notify user
@@ -1564,6 +1733,7 @@ app.post('/api/admin/loans/:id/record-payment', authenticateAdmin, async (req, r
     loan.amountPaid = (loan.amountPaid || 0) + amount;
     if (loan.amountPaid >= loan.totalAmount) {
       loan.status = 'completed';
+      loan.lastStatusUpdate = new Date();
       
       // Update customer
       await Customer.findByIdAndUpdate(loan.userId, {
@@ -1649,6 +1819,7 @@ app.patch('/api/admin/loan-applications/:id/force-complete', authenticateAdmin, 
 
     loan.status = 'completed';
     loan.amountPaid = loan.totalAmount;
+    loan.lastStatusUpdate = new Date();
     
     const customer = loan.userId;
     customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - (loan.totalAmount - (loan.amountPaid || 0)));
@@ -2640,6 +2811,20 @@ async function createInitialAdmin() {
     console.error('❌ Failed to create initial admin:', error);
   }
 }
+
+// ==================== LOAN STATUS UPDATE JOB ====================
+const updateLoanStatusesJob = async () => {
+  try {
+    await LoanApplication.updateLoanStatuses();
+  } catch (error) {
+    console.error('Loan status update job failed:', error);
+  }
+};
+
+// Run every hour
+setInterval(updateLoanStatusesJob, 60 * 60 * 1000);
+// Also run immediately on startup
+updateLoanStatusesJob();
 
 // ==================== SERVER STARTUP ====================
 const startServer = async () => {
