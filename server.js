@@ -372,63 +372,96 @@ loanApplicationSchema.pre('save', function(next) {
 loanApplicationSchema.statics.updateLoanStatuses = async function() {
   const now = new Date();
   
-  // Update overdue loans with daily penalty
-  const overdueLoans = await this.find({
-    status: 'defaulted',
-    dueDate: { $lt: now }
-  });
-
-  for (const loan of overdueLoans) {
-    const daysOverdue = Math.floor((now - loan.dueDate) / (1000 * 60 * 60 * 24));
-    if (daysOverdue > loan.overdueDays) {
-      const newOverdueDays = daysOverdue;
-      const newOverdueFees = loan.principal * 0.06 * newOverdueDays;
-      
-      await this.updateOne(
-        { _id: loan._id },
-        { 
-          overdueDays: newOverdueDays,
-          overdueFees: newOverdueFees,
-          lastOverdueCalculation: now,
-          totalAmount: loan.principal + loan.interestAmount + newOverdueFees
-        }
-      );
-
-      // Notify user via socket
-      io.to(`user_${loan.userId}`).emit('overdueUpdate', {
-        loanId: loan._id,
-        overdueDays: newOverdueDays,
-        overdueFees: newOverdueFees
-      });
-    }
-  }
-
-  // Update overdue loans that aren't yet marked as default
-  await this.updateMany({
-    status: 'active',
-    dueDate: { $lt: now },
-    markedDefault: { $ne: true }
-  }, {
-    $set: {
+  try {
+    // 1. Update overdue loans with daily penalty
+    const overdueLoans = await this.find({
       status: 'defaulted',
-      actualDueDate: now,
-      markedDefault: true,
-      overdueDays: 1,
-      overdueFees: { $multiply: ['$principal', 0.06] },
-      lastOverdueCalculation: now,
-      totalAmount: { $add: ['$totalAmount', { $multiply: ['$principal', 0.06] }] }
+      dueDate: { $lt: now }
+    });
+
+    for (const loan of overdueLoans) {
+      try {
+        const daysOverdue = Math.floor((now - loan.dueDate) / (1000 * 60 * 60 * 24));
+        const newOverdueDays = daysOverdue;
+        
+        // Add validation and safe defaults
+        const principal = loan.principal || 0;
+        const interestAmount = loan.interestAmount || 0;
+        const calculatedFees = principal * 0.06 * newOverdueDays;
+        const newOverdueFees = isNaN(calculatedFees) ? 0 : calculatedFees;
+        const newTotalAmount = principal + interestAmount + newOverdueFees;
+
+        await this.updateOne(
+          { _id: loan._id },
+          { 
+            $set: { 
+              overdueDays: newOverdueDays,
+              overdueFees: newOverdueFees,
+              lastOverdueCalculation: now,
+              totalAmount: newTotalAmount
+            }
+          }
+        );
+
+        // Notify user via socket
+        if (loan.userId) {
+          io.to(`user_${loan.userId}`).emit('overdueUpdate', {
+            loanId: loan._id,
+            overdueDays: newOverdueDays,
+            overdueFees: newOverdueFees,
+            totalAmount: newTotalAmount
+          });
+        }
+      } catch (error) {
+        console.error(`Error updating overdue loan ${loan._id}:`, error);
+      }
     }
-  });
 
-  // Complete fully paid loans
-  await this.updateMany({
-    status: 'active',
-    $expr: { $gte: ['$amountPaid', '$totalAmount'] }
-  }, {
-    $set: { status: 'completed' }
-  });
+    // 2. Update overdue loans that aren't yet marked as default
+    await this.updateMany({
+      status: 'active',
+      dueDate: { $lt: now },
+      markedDefault: { $ne: true }
+    }, {
+      $set: {
+        status: 'defaulted',
+        actualDueDate: now,
+        markedDefault: true,
+        overdueDays: 1,
+        overdueFees: { 
+          $cond: [
+            { $gt: ['$principal', 0] },
+            { $multiply: ['$principal', 0.06] },
+            0
+          ]
+        },
+        lastOverdueCalculation: now,
+        totalAmount: {
+          $cond: [
+            { $gt: ['$principal', 0] },
+            { $add: ['$totalAmount', { $multiply: ['$principal', 0.06] }] },
+            '$totalAmount'
+          ]
+        }
+      }
+    });
 
-  console.log('Loan status updates completed');
+    // 3. Complete fully paid loans
+    await this.updateMany({
+      status: 'active',
+      $expr: { $gte: ['$amountPaid', '$totalAmount'] }
+    }, {
+      $set: { 
+        status: 'completed',
+        lastStatusUpdate: now
+      }
+    });
+
+    console.log('✅ Loan status updates completed successfully');
+  } catch (error) {
+    console.error('❌ Loan status update job failed:', error);
+    throw error;
+  }
 };
 
 const customerSchema = new mongoose.Schema({
@@ -536,6 +569,7 @@ app.use(cors({
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Custom response formatter
 app.use((req, res, next) => {
   res.jsonResponse = (data, status = 200) => {
     res.status(status).json({
@@ -569,6 +603,24 @@ app.use((req, res, next) => {
   
   next();
 });
+
+// Loan validation middleware (added new)
+app.use('/api/admin/loans', [
+  body('amount').optional().isFloat({ min: 0 }).withMessage('Amount must be a positive number'),
+  body('overdueFees').optional().isFloat({ min: 0 }).withMessage('Fees must be a positive number'),
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        success: false,
+        code: 'VALIDATION_ERROR',
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+    next();
+  }
+]);
 
 // Rate limiter
 const loginAttempts = new Map();
@@ -746,7 +798,7 @@ const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+    pass: process.env.EMAIL_Pass
   }
 });
 
@@ -1535,12 +1587,39 @@ app.post('/api/payments/submit', authenticate, async (req, res) => {
   }
 });
 
+// Enhanced PATCH endpoint for payment status updates
 app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) => {
   try {
     const { status, reason } = req.body;
+    
+    // Validate input
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid status value. Must be either "approved" or "rejected"' 
+      });
+    }
+
+    // Additional validation for rejections
+    if (status === 'rejected') {
+      if (!reason || reason.trim().length < 5) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Rejection reason must be at least 5 characters long' 
+        });
+      }
+      if (reason.length > 500) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Rejection reason cannot exceed 500 characters' 
+        });
+      }
+    }
+
+    // Find payment with necessary relationships
     const payment = await Payment.findById(req.params.id)
-      .populate('userId')
-      .populate('loanId');
+      .populate('userId', 'fullName phoneNumber email currentLoanBalance activeLoan')
+      .populate('loanId', 'amount amountPaid totalAmount status repaymentSchedule lastStatusUpdate');
     
     if (!payment) {
       return res.status(404).json({ 
@@ -1549,141 +1628,50 @@ app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) 
       });
     }
 
-    if (payment.status === 'approved') {
+    // Check current payment status
+    if (payment.status !== 'pending') {
       return res.status(400).json({
         success: false,
-        message: 'Payment already approved'
+        message: `Cannot modify payment - current status is "${payment.status}"`,
+        currentStatus: payment.status
       });
     }
 
+    // Process approval
     if (status === 'approved') {
-      const loan = payment.loanId;
-      const customer = payment.userId;
-      const paymentAmount = payment.amount;
-      
-      // Update loan amount paid
-      loan.amountPaid = (loan.amountPaid || 0) + paymentAmount;
-      
-      // Apply payment to installments
-      let remainingAmount = paymentAmount;
-      for (const installment of loan.repaymentSchedule) {
-        // Only process pending installments
-        if (['pending', 'partial'].includes(installment.status) && remainingAmount > 0) {
-          // Calculate remaining due for this installment
-          const installmentDue = installment.amount - (installment.paidAmount || 0);
-          const amountToApply = Math.min(remainingAmount, installmentDue);
-          
-          // Update paid amount
-          installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
-          installment.paidAt = new Date();
-          
-          // Update status
-          if (installment.paidAmount >= installment.amount) {
-            installment.status = 'paid';
-          } else if (amountToApply > 0) {
-            installment.status = 'partial';
-          }
-          
-          remainingAmount -= amountToApply;
-          
-          // Stop processing if payment is exhausted
-          if (remainingAmount <= 0) break;
-        }
-      }
-      
-      // Check if loan is fully paid
-      if (loan.amountPaid >= loan.totalAmount) {
-        loan.status = 'completed';
-        loan.lastStatusUpdate = new Date();
-        customer.activeLoan = null;
-        
-        // Notify user
-        io.to(`user_${customer._id}`).emit('loanCompleted', {
-          loanId: loan._id,
-          amountPaid: paymentAmount
-        });
-      }
-      
-      // Update customer balance
-      customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - paymentAmount);
-      
-      // Update payment status
-      payment.status = 'approved';
-      payment.completedAt = new Date();
-      payment.approvedBy = req.admin.username;
-      
-      await Promise.all([loan.save(), customer.save(), payment.save()]);
-      
-      // Notify user
-      io.to(`user_${customer._id}`).emit('paymentApproved', {
-        amount: paymentAmount,
-        newBalance: customer.currentLoanBalance,
-        loanId: loan._id,
-        isFullyPaid: loan.status === 'completed'
-      });
-      
-      // Send confirmation email
-      if (customer.email) {
-        await sendEmail({
-          to: customer.email,
-          subject: 'Payment Approved',
-          html: `
-            <p>Your payment of KES ${payment.amount.toLocaleString()} has been approved.</p>
-            ${loan.status === 'completed' 
-              ? '<p>Your loan has been fully paid!</p>' 
-              : `<p>New loan balance: KES ${customer.currentLoanBalance.toLocaleString()}</p>`}
-          `
-        });
-      }
-      
-      res.json({
-        success: true,
-        data: {
-          userId: customer._id,
-          loanId: loan._id,
-          amount: paymentAmount,
-          newBalance: customer.currentLoanBalance,
-          customer: {
-            newBalance: customer.currentLoanBalance,
-            fullName: customer.fullName
-          }
-        }
-      });
-      
-    } else if (status === 'rejected') {
-      if (!reason) {
+      const validationError = validatePaymentForApproval(payment);
+      if (validationError) {
         return res.status(400).json({
           success: false,
-          message: 'Rejection reason is required'
+          message: validationError
         });
       }
 
-      payment.status = 'rejected';
-      payment.rejectionReason = reason;
-      await payment.save();
+      const result = await approvePaymentTransaction(
+        payment,
+        req.admin.username
+      );
 
-      // Notify user via socket
-      io.to(`user_${payment.userId._id}`).emit('paymentRejected', {
-        paymentId: payment._id,
-        amount: payment.amount,
-        reason: reason
+      return res.json({
+        success: true,
+        message: 'Payment approved successfully',
+        data: result
       });
+    } 
+    // Process rejection
+    else {
+      const result = await rejectPaymentTransaction(
+        payment,
+        reason,
+        req.admin.username
+      );
 
-      res.json({
+      return res.json({
         success: true,
         message: 'Payment rejected successfully',
-        data: {
-          paymentId: payment._id,
-          adminName: req.admin.username
-        }
-      });
-    } else {
-      res.status(400).json({
-        success: false,
-        message: 'Invalid status'
+        data: result
       });
     }
-    
   } catch (error) {
     console.error('Payment status update error:', error);
     res.status(500).json({
@@ -1693,6 +1681,188 @@ app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) 
     });
   }
 });
+
+// Validation helper for payment approval
+function validatePaymentForApproval(payment) {
+  if (!payment.amount || !validatePaymentAmount(payment.amount)) {
+    return 'Invalid payment amount';
+  }
+  if (!payment.loanId) {
+    return 'Associated loan not found';
+  }
+  if (!payment.userId) {
+    return 'Associated user not found';
+  }
+  return null;
+}
+
+// Transaction handler for payment approval
+async function approvePaymentTransaction(payment, adminUsername) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    const loan = payment.loanId;
+    const customer = payment.userId;
+    const paymentAmount = payment.amount;
+
+    // Update loan amount paid
+    loan.amountPaid = (loan.amountPaid || 0) + paymentAmount;
+    
+    // Apply payment to installments
+    let remainingAmount = paymentAmount;
+    for (const installment of loan.repaymentSchedule) {
+      if (['pending', 'partial'].includes(installment.status)) {
+        const amountDue = installment.amount - (installment.paidAmount || 0);
+        const amountToApply = Math.min(remainingAmount, amountDue);
+        
+        installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
+        installment.paidAt = new Date();
+        
+        if (installment.paidAmount >= installment.amount) {
+          installment.status = 'paid';
+        } else if (amountToApply > 0) {
+          installment.status = 'partial';
+        }
+        
+        remainingAmount -= amountToApply;
+        if (remainingAmount <= 0) break;
+      }
+    }
+    
+    // Check if loan is fully paid
+    const isLoanCompleted = loan.amountPaid >= loan.totalAmount;
+    if (isLoanCompleted) {
+      loan.status = 'completed';
+      loan.lastStatusUpdate = new Date();
+      customer.activeLoan = null;
+    }
+    
+    // Update customer balance
+    customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - paymentAmount);
+    
+    // Update payment status
+    payment.status = 'approved';
+    payment.completedAt = new Date();
+    payment.approvedBy = adminUsername;
+    
+    // Save all changes in transaction
+    await Promise.all([
+      loan.save({ session }),
+      customer.save({ session }),
+      payment.save({ session })
+    ]);
+    
+    await session.commitTransaction();
+    
+    // Prepare notification data
+    const notificationData = {
+      paymentId: payment._id,
+      amount: paymentAmount,
+      newBalance: customer.currentLoanBalance,
+      loanId: loan._id,
+      isFullyPaid: isLoanCompleted,
+      adminName: adminUsername,
+      userId: customer._id
+    };
+    
+    // Send real-time notifications
+    io.to(`user_${customer._id}`).emit('paymentApproved', notificationData);
+    
+    // Send email notification if configured
+    if (customer.email) {
+      await sendPaymentApprovalEmail(customer, payment, loan);
+    }
+    
+    // If loan completed, send additional notification
+    if (isLoanCompleted) {
+      io.to(`user_${customer._id}`).emit('loanCompleted', {
+        loanId: loan._id,
+        amountPaid: paymentAmount
+      });
+    }
+    
+    return {
+      ...notificationData,
+      customer: {
+        fullName: customer.fullName,
+        email: customer.email,
+        phoneNumber: customer.phoneNumber
+      }
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+}
+
+// Transaction handler for payment rejection
+async function rejectPaymentTransaction(payment, reason, adminUsername) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    // Update payment status
+    payment.status = 'rejected';
+    payment.rejectionReason = reason;
+    payment.rejectedAt = new Date();
+    payment.rejectedBy = adminUsername;
+    
+    await payment.save({ session });
+    await session.commitTransaction();
+    
+    // Prepare notification data
+    const notificationData = {
+      paymentId: payment._id,
+      amount: payment.amount,
+      reason: reason,
+      adminName: adminUsername,
+      userId: payment.userId._id
+    };
+    
+    // Send real-time notification
+    io.to(`user_${payment.userId._id}`).emit('paymentRejected', notificationData);
+    
+    return notificationData;
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+}
+
+// Shared payment amount validation
+function validatePaymentAmount(amount) {
+  const num = Number(amount);
+  return !isNaN(num) && num > 0 && num < 1000000 && isFinite(num);
+}
+
+// Email sending helper
+async function sendPaymentApprovalEmail(customer, payment, loan) {
+  try {
+    const emailContent = `
+      <h2>Payment Approved</h2>
+      <p>Dear ${customer.fullName},</p>
+      <p>Your payment of ${payment.amount.toLocaleString()} KES has been approved.</p>
+      ${loan.status === 'completed' 
+        ? '<p>Congratulations! Your loan has been fully paid.</p>' 
+        : `<p>Your new loan balance is ${customer.currentLoanBalance.toLocaleString()} KES.</p>`}
+      <p>Thank you for your prompt payment.</p>
+    `;
+    
+    await sendEmail({
+      to: customer.email,
+      subject: 'Payment Approved - Loan Account',
+      html: emailContent
+    });
+  } catch (emailError) {
+    console.error('Failed to send approval email:', emailError);
+    // Don't fail the whole operation if email fails
+  }
+}
 
 app.get('/api/admin/payments', authenticateAdmin, async (req, res) => {
   try {

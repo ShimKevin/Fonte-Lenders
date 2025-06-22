@@ -1159,17 +1159,37 @@ async function showLoanDetails(loanId) {
     const response = await apiClient(`/api/admin/loan-applications/${loanId}`);
     const loan = response.data || response.loan;
     
-    // FIX: Properly handle repayment history
-    const repaymentRows = (loan.repaymentSchedule || []).map(payment => `
-      <tr>
-        <td>${formatDate(payment.dueDate)}</td>
-        <td>KES ${payment.amount?.toLocaleString() || '0'}</td>
-        <td>KES ${payment.paidAmount?.toLocaleString() || '0'}</td>
-        <td class="status-${payment.status}">${payment.status?.toUpperCase() || 'PENDING'}</td>
-        <td>${payment.paidAt ? formatDate(payment.paidAt) : 'N/A'}</td>
-      </tr>
-    `).join('') || '<tr><td colspan="5">No repayment history</td></tr>';
-    
+    // Safe numeric values with validation
+    const safePrincipal = isNaN(loan.principal) ? 0 : Number(loan.principal);
+    const safeAmount = isNaN(loan.amount) ? 0 : Number(loan.amount);
+    const safeInterestAmount = isNaN(loan.interestAmount) ? 0 : Number(loan.interestAmount);
+    const safeOverdueFees = isNaN(loan.overdueFees) ? 0 : Number(loan.overdueFees);
+    const safeAmountPaid = isNaN(loan.amountPaid) ? 0 : Number(loan.amountPaid);
+    const safeTotalAmount = safePrincipal + safeInterestAmount + safeOverdueFees;
+    const safeBalance = Math.max(0, safeTotalAmount - safeAmountPaid);
+
+    // Safe repayment history
+    const repaymentRows = (loan.repaymentSchedule || []).map(payment => {
+      const safePaymentAmount = isNaN(payment.amount) ? 0 : Number(payment.amount);
+      const safePaidAmount = isNaN(payment.paidAmount) ? 0 : Number(payment.paidAmount);
+      const safeStatus = payment.status || 'pending';
+      
+      return `
+        <tr>
+          <td>${formatDate(payment.dueDate)}</td>
+          <td>KES ${safePaymentAmount.toLocaleString()}</td>
+          <td>KES ${safePaidAmount.toLocaleString()}</td>
+          <td class="status-${safeStatus}">${safeStatus.toUpperCase()}</td>
+          <td>${payment.paidAt ? formatDate(payment.paidAt) : 'N/A'}</td>
+        </tr>
+      `;
+    }).join('') || '<tr><td colspan="5">No repayment history</td></tr>';
+
+    // Calculate days remaining safely
+    const daysRemaining = loan.dueDate ? calculateDaysRemaining(loan.dueDate) : 'N/A';
+    const dailyPenalty = safePrincipal * 0.06;
+    const maxPaymentAmount = Math.max(0, safeBalance);
+
     document.getElementById('loanDetailsContent').innerHTML = `
       <div class="loan-details-modal-content">
         <div class="loan-header">
@@ -1192,10 +1212,10 @@ async function showLoanDetails(loanId) {
               </span>
             </div>
             <div class="info-field">
-              <strong>Principal:</strong> KES ${loan.principal?.toLocaleString() || loan.amount?.toLocaleString() || '0'}
+              <strong>Principal:</strong> KES ${safePrincipal.toLocaleString()}
             </div>
             <div class="info-field">
-              <strong>Total Amount:</strong> KES ${loan.totalAmount?.toLocaleString() || '0'}
+              <strong>Total Amount:</strong> KES ${safeTotalAmount.toLocaleString()}
             </div>
           </div>
           
@@ -1226,15 +1246,15 @@ async function showLoanDetails(loanId) {
             </div>
             <div class="detail-row">
               <span>Daily Penalty:</span>
-              <span>6% of principal (KES ${(loan.principal * 0.06).toLocaleString()}/day)</span>
+              <span>6% of principal (KES ${dailyPenalty.toLocaleString()}/day)</span>
             </div>
             <div class="detail-row">
               <span>Total Penalty:</span>
-              <span>KES ${loan.overdueFees?.toLocaleString() || '0'}</span>
+              <span>KES ${safeOverdueFees.toLocaleString()}</span>
             </div>
             <div class="detail-row">
               <span>Updated Total:</span>
-              <span>KES ${loan.totalAmount?.toLocaleString() || '0'}</span>
+              <span>KES ${safeTotalAmount.toLocaleString()}</span>
             </div>
             <div class="detail-row">
               <span>Last Calculated:</span>
@@ -1246,15 +1266,15 @@ async function showLoanDetails(loanId) {
         <div class="payment-summary">
           <div class="summary-card">
             <h5>Amount Paid</h5>
-            <p>KES ${loan.amountPaid?.toLocaleString() || '0'}</p>
+            <p>KES ${safeAmountPaid.toLocaleString()}</p>
           </div>
           <div class="summary-card">
             <h5>Balance</h5>
-            <p>KES ${(loan.totalAmount - loan.amountPaid)?.toLocaleString() || '0'}</p>
+            <p>KES ${safeBalance.toLocaleString()}</p>
           </div>
           <div class="summary-card">
             <h5>Days Remaining</h5>
-            <p>${calculateDaysRemaining(loan.dueDate)}</p>
+            <p>${daysRemaining}</p>
           </div>
         </div>
         
@@ -1274,14 +1294,14 @@ async function showLoanDetails(loanId) {
           </tbody>
         </table>
         
-        ${loan.status === 'active' && loan.amountPaid < loan.totalAmount ? `
+        ${loan.status === 'active' && safeBalance > 0 ? `
           <div class="force-payment-section" style="margin-top: 30px;">
             <h4>Force Payment</h4>
             <div class="form-group">
               <label for="force-payment-amount">Amount</label>
               <input type="number" id="force-payment-amount" 
-                     min="1" max="${loan.totalAmount - loan.amountPaid}" 
-                     step="100" value="${loan.totalAmount - loan.amountPaid}">
+                     min="1" max="${maxPaymentAmount}" 
+                     step="100" value="${maxPaymentAmount}">
             </div>
             <button class="luxury-btn" id="force-payment-btn" 
                     style="background: var(--green);">
@@ -1304,9 +1324,13 @@ async function showLoanDetails(loanId) {
     const forcePaymentBtn = document.getElementById('force-payment-btn');
     if (forcePaymentBtn) {
       forcePaymentBtn.addEventListener('click', () => {
-        const amount = parseFloat(document.getElementById('force-payment-amount').value);
-        if (amount > 0) {
+        const amountInput = document.getElementById('force-payment-amount');
+        const amount = parseFloat(amountInput.value);
+        if (!isNaN(amount) && amount > 0 && amount <= maxPaymentAmount) {
           recordManualPayment(loanId, amount);
+        } else {
+          showError(`Please enter a valid amount between 1 and ${maxPaymentAmount}`);
+          amountInput.focus();
         }
       });
     }
@@ -1322,10 +1346,16 @@ async function showLoanDetails(loanId) {
 
 function calculateDaysRemaining(dueDate) {
   if (!dueDate) return 'N/A';
-  const due = new Date(dueDate);
-  const now = new Date();
-  const diff = due - now;
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  try {
+    const due = new Date(dueDate);
+    const now = new Date();
+    const diff = due - now;
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    return days > 0 ? days : 'Overdue';
+  } catch (error) {
+    debugLog(`Date calculation error: ${error.message}`);
+    return 'N/A';
+  }
 }
 
 // ==================== FORCE COMPLETE LOAN FUNCTION ====================
@@ -1501,97 +1531,160 @@ function displayPendingPayments(payments, totalPages = 1, currentPage = 1) {
     document.getElementById('pending-payments-section').classList.remove('hidden');
 }
 
+// Enhanced Payment Approval Function
 async function approvePayment(paymentId) {
-    try {
-        const response = await apiClient(
-            `/api/admin/payments/${paymentId}/status`, // Updated endpoint
-            'PATCH',
-            { status: 'approved' } // Added request body
-        );
-        
-        if (response.success) {
-            showNotification(
-                `Payment approved for ${response.data.customer.fullName}!`, // Updated to use response.data.customer.fullName
-                'success'
-            );
-            
-            // Emit socket event
-            socket.emit('paymentApproved', {
-                paymentId,
-                adminName: currentAdmin.username,
-                userId: response.data.userId,
-                loanId: response.data.loanId,
-                amount: response.data.amount,
-                newBalance: response.data.customer.newBalance
-            });
-            
-            // Refresh pending payments list
-            showPendingPayments();
-            
-            // Update dashboard metrics
-            loadAdminData();
-            
-            // If we're viewing the customer's profile, refresh it
-            if (currentCustomerId === response.data.userId) {
-                loadCustomerProfile(response.data.userId);
-            }
-            
-            // If we're viewing the loan details, refresh them
-            if (currentLoanId === response.data.loanId) {
-                showLoanDetails(response.data.loanId);
-            }
-        }
-    } catch (error) {
-        showError(`Failed to approve payment: ${error.message}`);
+  try {
+    // Validate admin session
+    if (!currentAdmin || !currentAdmin.username) {
+      showError('Admin session expired. Please login again.');
+      return;
     }
+
+    // Get payment details
+    const payment = await getPayment(paymentId);
+    
+    // Validate payment
+    if (!payment || payment.status !== 'pending') {
+      showError('Payment is not available for approval');
+      return;
+    }
+
+    if (!validatePaymentAmount(payment.amount)) {
+      showError('Invalid payment amount');
+      return;
+    }
+
+    // Process approval
+    const response = await apiClient(
+      `/api/admin/payments/${paymentId}/status`,
+      'PATCH',
+      { status: 'approved' }
+    );
+    
+    if (response.success) {
+      // Show success notification
+      showNotification(
+        `Payment approved for ${response.data.customer.fullName}!`,
+        'success'
+      );
+      
+      // Refresh UI components
+      refreshApplicationAfterPayment(response.data);
+    } else {
+      showError(response.message || 'Failed to approve payment');
+    }
+  } catch (error) {
+    showError(`Failed to approve payment: ${error.message}`);
+    console.error('Payment approval error:', error);
+  }
 }
 
+// Enhanced Payment Rejection Function
 async function rejectPayment(paymentId) {
-    const reason = prompt('Reason for rejection:');
-    if (!reason) return;
-
-    try {
-        const response = await apiClient(
-            `/api/admin/payments/${paymentId}/status`, // Updated endpoint
-            'PATCH', 
-            { 
-                status: 'rejected', // Added status field
-                reason // Included reason
-            }
-        );
-
-        if (response.success) {
-            showNotification(
-                `Payment rejected by ${response.data.adminName}`, // Updated notification
-                'success'
-            );
-            
-            // Emit socket event
-            socket.emit('paymentRejected', {
-                paymentId,
-                adminName: currentAdmin.username,
-                reason: reason // Added reason to socket event
-            });
-            
-            // Refresh pending payments list
-            showPendingPayments();
-            
-            // Update dashboard metrics
-            loadAdminData();
-            
-            // If we're viewing the customer's profile, refresh it
-            if (currentCustomerId === response.data.userId) {
-                loadCustomerProfile(response.data.userId);
-            }
-        }
-    } catch (error) {
-        showError(`Failed to reject payment: ${error.message}`);
+  try {
+    // Validate admin session
+    if (!currentAdmin || !currentAdmin.username) {
+      showError('Admin session expired. Please login again.');
+      return;
     }
+
+    // Get payment details
+    const payment = await getPayment(paymentId);
+    
+    // Validate payment
+    if (!payment || payment.status !== 'pending') {
+      showError('Payment is not available for rejection');
+      return;
+    }
+
+    // Get rejection reason
+    const reason = prompt('Reason for rejection (minimum 5 characters):');
+    if (!reason || reason.trim().length < 5) {
+      showError('Please provide a valid reason (at least 5 characters)');
+      return;
+    }
+
+    // Process rejection
+    const response = await apiClient(
+      `/api/admin/payments/${paymentId}/status`,
+      'PATCH', 
+      { 
+        status: 'rejected',
+        reason 
+      }
+    );
+
+    if (response.success) {
+      showNotification(
+        `Payment #${paymentId.slice(-6)} rejected successfully`,
+        'success'
+      );
+      
+      refreshApplicationAfterPayment(response.data);
+    } else {
+      showError(response.message || 'Failed to reject payment');
+    }
+  } catch (error) {
+    showError(`Failed to reject payment: ${error.message}`);
+    console.error('Payment rejection error:', error);
+  }
 }
 
-function hidePendingPayments() {
-    document.getElementById('pending-payments-section').classList.add('hidden');
-    document.getElementById('admin-grid').classList.remove('hidden');
+// Socket.IO Real-time Updates
+socket.on('paymentApproved', (data) => {
+  if (currentCustomerId === data.userId || isAdminView) {
+    showNotification(`Your payment of $${data.amount} was approved! New balance: $${data.newBalance}`, 'success');
+    
+    // Refresh relevant UI components
+    if (currentLoanId === data.loanId) {
+      loadLoanDetails(data.loanId);
+    }
+    if (isAdminView) {
+      refreshDashboard();
+    }
+  }
+});
+
+socket.on('paymentRejected', (data) => {
+  if (currentCustomerId === data.userId || isAdminView) {
+    showNotification(`Payment #${data.paymentId.slice(-6)} was rejected. Reason: ${data.reason}`, 'warning');
+    
+    // Refresh relevant UI components
+    if (isAdminView) {
+      refreshDashboard();
+    }
+  }
+});
+
+// Helper Functions
+async function getPayment(paymentId) {
+  const response = await apiClient(`/api/payments/${paymentId}`);
+  if (!response.success) throw new Error(response.message || 'Failed to fetch payment');
+  return response.data;
+}
+
+function refreshApplicationAfterPayment(paymentData) {
+  // Refresh pending payments list
+  showPendingPayments();
+  
+  // Update dashboard metrics
+  loadAdminData();
+  
+  // Refresh customer profile if currently viewing
+  if (currentCustomerId === paymentData.userId) {
+    loadCustomerProfile(paymentData.userId);
+  }
+  
+  // Refresh loan details if currently viewing
+  if (currentLoanId === paymentData.loanId) {
+    showLoanDetails(paymentData.loanId);
+  }
+}
+
+// Shared validation (matches backend validation)
+function validatePaymentAmount(amount) {
+  const num = Number(amount);
+  return !isNaN(num) && num > 0 && num < 1000000 && isFinite(num);
 }
 
 // ==================== REPORTING ====================
