@@ -1504,12 +1504,16 @@ function displayPendingPayments(payments, totalPages = 1, currentPage = 1) {
 async function approvePayment(paymentId) {
     try {
         const response = await apiClient(
-            `/api/admin/payments/${paymentId}/approve`,
-            'PATCH'
+            `/api/admin/payments/${paymentId}/status`, // Updated endpoint
+            'PATCH',
+            { status: 'approved' } // Added request body
         );
         
         if (response.success) {
-            showNotification(`Payment approved for ${response.customerName}!`, 'success');
+            showNotification(
+                `Payment approved for ${response.data.customer.fullName}!`, // Updated to use response.data.customer.fullName
+                'success'
+            );
             
             // Emit socket event
             socket.emit('paymentApproved', {
@@ -1547,20 +1551,38 @@ async function rejectPayment(paymentId) {
     if (!reason) return;
 
     try {
-        const response = await apiClient(`/api/admin/payments/${paymentId}/reject`, 'PATCH', { reason });
+        const response = await apiClient(
+            `/api/admin/payments/${paymentId}/status`, // Updated endpoint
+            'PATCH', 
+            { 
+                status: 'rejected', // Added status field
+                reason // Included reason
+            }
+        );
+
         if (response.success) {
-            showNotification('Payment rejected!', 'success');
+            showNotification(
+                `Payment rejected by ${response.data.adminName}`, // Updated notification
+                'success'
+            );
             
             // Emit socket event
             socket.emit('paymentRejected', {
                 paymentId,
-                adminName: currentAdmin.username
+                adminName: currentAdmin.username,
+                reason: reason // Added reason to socket event
             });
             
             // Refresh pending payments list
             showPendingPayments();
+            
             // Update dashboard metrics
             loadAdminData();
+            
+            // If we're viewing the customer's profile, refresh it
+            if (currentCustomerId === response.data.userId) {
+                loadCustomerProfile(response.data.userId);
+            }
         }
     } catch (error) {
         showError(`Failed to reject payment: ${error.message}`);

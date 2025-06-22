@@ -1642,7 +1642,11 @@ app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) 
           userId: customer._id,
           loanId: loan._id,
           amount: paymentAmount,
-          newBalance: customer.currentLoanBalance
+          newBalance: customer.currentLoanBalance,
+          customer: {
+            newBalance: customer.currentLoanBalance,
+            fullName: customer.fullName
+          }
         }
       });
       
@@ -1667,7 +1671,11 @@ app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) 
 
       res.json({
         success: true,
-        message: 'Payment rejected successfully'
+        message: 'Payment rejected successfully',
+        data: {
+          paymentId: payment._id,
+          adminName: req.admin.username
+        }
       });
     } else {
       res.status(400).json({
