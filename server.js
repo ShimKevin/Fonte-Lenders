@@ -45,6 +45,24 @@ io.on('connection', (socket) => {
   socket.on('joinUserRoom', (userId) => {
     socket.join(`user_${userId}`);
     console.log(`👤 User ${userId} joined room`);
+    
+    // Send immediate overdue update if needed
+    LoanApplication.findOne({
+      userId,
+      status: 'defaulted'
+    }).then(loan => {
+      if (loan) {
+        const now = new Date();
+        const daysOverdue = Math.floor((now - loan.dueDate) / (1000 * 60 * 60 * 24));
+        if (daysOverdue > (loan.overdueDays || 0)) {
+          socket.emit('overdueUpdate', {
+            loanId: loan._id,
+            overdueDays: daysOverdue,
+            overdueFees: loan.principal * 0.06 * daysOverdue
+          });
+        }
+      }
+    });
   });
 
   // ==================== REAL-TIME UPDATE HANDLERS ====================
@@ -115,6 +133,16 @@ io.on('connection', (socket) => {
       amount: data.amount,
       loanId: data.loanId,
       newBalance: data.newBalance
+    });
+  });
+
+  // ==================== PAYMENT REJECTION HANDLER ====================
+  socket.on('paymentRejected', (data) => {
+    console.log(`❌ Payment rejected for user ${data.userId}: ${data.reason}`);
+    io.to(`user_${data.userId}`).emit('paymentRejected', {
+      paymentId: data.paymentId,
+      amount: data.amount,
+      reason: data.reason
     });
   });
 });
@@ -269,6 +297,7 @@ const paymentSchema = new mongoose.Schema({
   },
   paymentDetails: Object,
   completedAt: Date,
+  rejectionReason: String,
   paymentDate: { type: Date, default: Date.now }
 }, { timestamps: true });
 
@@ -295,9 +324,9 @@ const loanApplicationSchema = new mongoose.Schema({
   dueDate: Date,
   approvedAt: Date,
   rejectedAt: Date,
-  actualDueDate: Date,       // Track when loan actually became due
-  markedDefault: Boolean,    // Track if already marked as default
-  lastStatusUpdate: Date,    // Track when status was last updated
+  actualDueDate: Date,
+  markedDefault: Boolean,
+  lastStatusUpdate: Date,
   paymentDetails: {
     mode: { type: String, enum: ['M-Pesa'], default: 'M-Pesa' },
     mpesaNumber: String,
@@ -310,15 +339,21 @@ const loanApplicationSchema = new mongoose.Schema({
   repaymentSchedule: [{
     dueDate: Date,
     amount: Number,
-    paidAmount: { type: Number, default: 0 }, // Track partial payments
+    paidAmount: { type: Number, default: 0 },
     status: { 
       type: String, 
-      enum: ['pending', 'paid', 'overdue', 'partial'], // Added 'partial'
+      enum: ['pending', 'paid', 'overdue', 'partial'],
       default: 'pending' 
     },
     paidAt: Date
   }],
-  totalAmount: { type: Number } // Total amount including interest
+  totalAmount: { type: Number },
+  principal: { type: Number },
+  interestRate: { type: Number },
+  interestAmount: { type: Number },
+  overdueDays: { type: Number, default: 0 },
+  overdueFees: { type: Number, default: 0 },
+  lastOverdueCalculation: { type: Date }
 }, { timestamps: true });
 
 // Add indexes for frequent queries
@@ -337,6 +372,37 @@ loanApplicationSchema.pre('save', function(next) {
 loanApplicationSchema.statics.updateLoanStatuses = async function() {
   const now = new Date();
   
+  // Update overdue loans with daily penalty
+  const overdueLoans = await this.find({
+    status: 'defaulted',
+    dueDate: { $lt: now }
+  });
+
+  for (const loan of overdueLoans) {
+    const daysOverdue = Math.floor((now - loan.dueDate) / (1000 * 60 * 60 * 24));
+    if (daysOverdue > loan.overdueDays) {
+      const newOverdueDays = daysOverdue;
+      const newOverdueFees = loan.principal * 0.06 * newOverdueDays;
+      
+      await this.updateOne(
+        { _id: loan._id },
+        { 
+          overdueDays: newOverdueDays,
+          overdueFees: newOverdueFees,
+          lastOverdueCalculation: now,
+          totalAmount: loan.principal + loan.interestAmount + newOverdueFees
+        }
+      );
+
+      // Notify user via socket
+      io.to(`user_${loan.userId}`).emit('overdueUpdate', {
+        loanId: loan._id,
+        overdueDays: newOverdueDays,
+        overdueFees: newOverdueFees
+      });
+    }
+  }
+
   // Update overdue loans that aren't yet marked as default
   await this.updateMany({
     status: 'active',
@@ -346,7 +412,11 @@ loanApplicationSchema.statics.updateLoanStatuses = async function() {
     $set: {
       status: 'defaulted',
       actualDueDate: now,
-      markedDefault: true
+      markedDefault: true,
+      overdueDays: 1,
+      overdueFees: { $multiply: ['$principal', 0.06] },
+      lastOverdueCalculation: now,
+      totalAmount: { $add: ['$totalAmount', { $multiply: ['$principal', 0.06] }] }
     }
   });
 
@@ -1145,12 +1215,15 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
     loan.lastStatusUpdate = new Date();
     loan.approvedAt = new Date();
     loan.adminNotes = adminNotes;
-    loan.principal = principal;          // Set explicitly
+    loan.principal = principal;
     loan.interestRate = interestRate;
-    loan.interestAmount = interestAmount; // Set explicitly
-    loan.totalAmount = totalAmount;       // Set explicitly
+    loan.interestAmount = interestAmount;
+    loan.totalAmount = totalAmount;
     loan.dueDate = dueDate;
     loan.repaymentSchedule = repaymentSchedule;
+    loan.overdueDays = 0;
+    loan.overdueFees = 0;
+    loan.lastOverdueCalculation = null;
 
     // Update customer
     const customer = await Customer.findById(loan.userId);
@@ -1236,9 +1309,9 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
       data: {
         loan: {
           _id: loan._id,
-          principal: loan.principal,         // From updated loan object
-          interestAmount: loan.interestAmount, // From updated loan object
-          totalAmount: loan.totalAmount,       // From updated loan object
+          principal: loan.principal,
+          interestAmount: loan.interestAmount,
+          totalAmount: loan.totalAmount,
           dueDate: loan.dueDate
         },
         customer: {
@@ -1410,7 +1483,7 @@ app.post('/api/payments/submit', authenticate, async (req, res) => {
 
     const { reference, amount } = req.body;
     
-    // Get total remaining amount (including interest)
+    // Get total remaining amount (including interest and overdue fees)
     const totalRemaining = activeLoan.totalAmount - (activeLoan.amountPaid || 0);
     
     if (amount > totalRemaining) {
@@ -1462,8 +1535,9 @@ app.post('/api/payments/submit', authenticate, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/payments/:id/approve', authenticateAdmin, async (req, res) => {
+app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) => {
   try {
+    const { status, reason } = req.body;
     const payment = await Payment.findById(req.params.id)
       .populate('userId')
       .populate('loanId');
@@ -1482,190 +1556,118 @@ app.patch('/api/admin/payments/:id/approve', authenticateAdmin, async (req, res)
       });
     }
 
-    const loan = payment.loanId;
-    const customer = payment.userId;
-    const paymentAmount = payment.amount;
-    
-    // Update loan amount paid
-    loan.amountPaid = (loan.amountPaid || 0) + paymentAmount;
-    
-    // Apply payment to installments
-    let remainingAmount = paymentAmount;
-    for (const installment of loan.repaymentSchedule) {
-      // Only process pending installments
-      if (['pending', 'partial'].includes(installment.status) && remainingAmount > 0) {
-        // Calculate remaining due for this installment
-        const installmentDue = installment.amount - (installment.paidAmount || 0);
-        const amountToApply = Math.min(remainingAmount, installmentDue);
-        
-        // Update paid amount
-        installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
-        installment.paidAt = new Date();
-        
-        // Update status
-        if (installment.paidAmount >= installment.amount) {
-          installment.status = 'paid';
-        } else if (amountToApply > 0) {
-          installment.status = 'partial';
-        }
-        
-        remainingAmount -= amountToApply;
-        
-        // Stop processing if payment is exhausted
-        if (remainingAmount <= 0) break;
-      }
-    }
-    
-    // Check if loan is fully paid
-    if (loan.amountPaid >= loan.totalAmount) {
-      loan.status = 'completed';
-      loan.lastStatusUpdate = new Date();
-      customer.activeLoan = null;
-      
-      // Notify user
-      io.to(`user_${customer._id}`).emit('loanCompleted', {
-        loanId: loan._id,
-        amountPaid: paymentAmount
-      });
-    }
-    
-    // Update customer balance
-    customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - paymentAmount);
-    
-    // Update payment status
-    payment.status = 'approved';
-    payment.completedAt = new Date();
-    payment.approvedBy = req.admin.username;
-    
-    await Promise.all([loan.save(), customer.save(), payment.save()]);
-    
-    // Notify user
-    io.to(`user_${customer._id}`).emit('paymentApproved', {
-      amount: paymentAmount,
-      newBalance: customer.currentLoanBalance,
-      loanId: loan._id,
-      isFullyPaid: loan.status === 'completed'
-    });
-    
-    // Send confirmation email
-    if (customer.email) {
-      await sendEmail({
-        to: customer.email,
-        subject: 'Payment Approved',
-        html: `
-          <p>Your payment of KES ${payment.amount.toLocaleString()} has been approved.</p>
-          ${loan.status === 'completed' 
-            ? '<p>Your loan has been fully paid!</p>' 
-            : `<p>New loan balance: KES ${customer.currentLoanBalance.toLocaleString()}</p>`}
-        `
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: {
-        userId: customer._id,
-        loanId: loan._id,
-        amount: paymentAmount,
-        newBalance: customer.currentLoanBalance
-      }
-    });
-    
-  } catch (error) {
-    console.error('Payment approval error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to approve payment',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) => {
-  try {
-    const { status } = req.body;
-    const payment = await Payment.findById(req.params.id)
-      .populate('userId')
-      .populate('loanId');
-    
-    if (!payment) return res.status(404).json({ 
-      success: false, 
-      message: 'Payment not found' 
-    });
-
-    if (payment.status === 'approved') {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment already approved'
-      });
-    }
-
     if (status === 'approved') {
       const loan = payment.loanId;
-      const user = payment.userId;
+      const customer = payment.userId;
+      const paymentAmount = payment.amount;
       
-      // Update loan
-      loan.amountPaid = (loan.amountPaid || 0) + payment.amount;
+      // Update loan amount paid
+      loan.amountPaid = (loan.amountPaid || 0) + paymentAmount;
       
-      // Add to repayment schedule
-      loan.repaymentSchedule.push({
-        dueDate: new Date(),
-        amount: payment.amount,
-        status: 'paid',
-        paidAt: new Date()
-      });
+      // Apply payment to installments
+      let remainingAmount = paymentAmount;
+      for (const installment of loan.repaymentSchedule) {
+        // Only process pending installments
+        if (['pending', 'partial'].includes(installment.status) && remainingAmount > 0) {
+          // Calculate remaining due for this installment
+          const installmentDue = installment.amount - (installment.paidAmount || 0);
+          const amountToApply = Math.min(remainingAmount, installmentDue);
+          
+          // Update paid amount
+          installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
+          installment.paidAt = new Date();
+          
+          // Update status
+          if (installment.paidAmount >= installment.amount) {
+            installment.status = 'paid';
+          } else if (amountToApply > 0) {
+            installment.status = 'partial';
+          }
+          
+          remainingAmount -= amountToApply;
+          
+          // Stop processing if payment is exhausted
+          if (remainingAmount <= 0) break;
+        }
+      }
       
       // Check if loan is fully paid
       if (loan.amountPaid >= loan.totalAmount) {
         loan.status = 'completed';
         loan.lastStatusUpdate = new Date();
-        user.activeLoan = null;
+        customer.activeLoan = null;
         
         // Notify user
-        io.to(`user_${user._id}`).emit('loanCompleted', {
+        io.to(`user_${customer._id}`).emit('loanCompleted', {
           loanId: loan._id,
-          amountPaid: payment.amount
+          amountPaid: paymentAmount
         });
       }
       
       // Update customer balance
-      user.currentLoanBalance = Math.max(0, user.currentLoanBalance - payment.amount);
+      customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - paymentAmount);
       
       // Update payment status
       payment.status = 'approved';
       payment.completedAt = new Date();
+      payment.approvedBy = req.admin.username;
       
-      await Promise.all([loan.save(), user.save(), payment.save()]);
+      await Promise.all([loan.save(), customer.save(), payment.save()]);
       
       // Notify user
-      io.to(`user_${user._id}`).emit('paymentApproved', {
-        amount: payment.amount,
-        newBalance: user.currentLoanBalance,
-        reference: payment.reference
+      io.to(`user_${customer._id}`).emit('paymentApproved', {
+        amount: paymentAmount,
+        newBalance: customer.currentLoanBalance,
+        loanId: loan._id,
+        isFullyPaid: loan.status === 'completed'
       });
       
       // Send confirmation email
-      if (user.email) {
+      if (customer.email) {
         await sendEmail({
-          to: user.email,
+          to: customer.email,
           subject: 'Payment Approved',
-          html: `<p>Your payment of KES ${payment.amount} has been approved. New balance: KES ${user.currentLoanBalance}</p>`
+          html: `
+            <p>Your payment of KES ${payment.amount.toLocaleString()} has been approved.</p>
+            ${loan.status === 'completed' 
+              ? '<p>Your loan has been fully paid!</p>' 
+              : `<p>New loan balance: KES ${customer.currentLoanBalance.toLocaleString()}</p>`}
+          `
         });
       }
       
       res.json({
         success: true,
-        message: 'Payment approved successfully',
-        newBalance: user.currentLoanBalance
+        data: {
+          userId: customer._id,
+          loanId: loan._id,
+          amount: paymentAmount,
+          newBalance: customer.currentLoanBalance
+        }
       });
       
     } else if (status === 'rejected') {
+      if (!reason) {
+        return res.status(400).json({
+          success: false,
+          message: 'Rejection reason is required'
+        });
+      }
+
       payment.status = 'rejected';
+      payment.rejectionReason = reason;
       await payment.save();
-      
+
+      // Notify user via socket
+      io.to(`user_${payment.userId._id}`).emit('paymentRejected', {
+        paymentId: payment._id,
+        amount: payment.amount,
+        reason: reason
+      });
+
       res.json({
         success: true,
-        message: 'Payment rejected'
+        message: 'Payment rejected successfully'
       });
     } else {
       res.status(400).json({
@@ -1678,7 +1680,8 @@ app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) 
     console.error('Payment status update error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update payment status'
+      message: 'Failed to update payment status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -2042,7 +2045,7 @@ app.get('/api/user/profile', authenticate, async (req, res) => {
       .populate({
         path: 'activeLoan',
         match: { status: 'active' },
-        select: 'amount amountPaid dueDate repaymentSchedule status totalAmount'
+        select: 'amount amountPaid dueDate repaymentSchedule status totalAmount principal interestRate overdueDays overdueFees lastOverdueCalculation'
       })
       .lean();
 
@@ -2051,6 +2054,31 @@ app.get('/api/user/profile', authenticate, async (req, res) => {
         success: false, 
         message: 'User not found'
       });
+    }
+
+    // Calculate days overdue if loan is defaulted
+    if (user.activeLoan?.status === 'defaulted') {
+      const now = new Date();
+      const dueDate = new Date(user.activeLoan.dueDate);
+      const daysOverdue = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
+      
+      if (daysOverdue > (user.activeLoan.overdueDays || 0)) {
+        const overdueFees = user.activeLoan.principal * 0.06 * daysOverdue;
+        user.activeLoan.overdueDays = daysOverdue;
+        user.activeLoan.overdueFees = overdueFees;
+        user.activeLoan.totalAmount = user.activeLoan.principal + (user.activeLoan.interestAmount || 0) + overdueFees;
+        
+        // Update in database
+        await LoanApplication.updateOne(
+          { _id: user.activeLoan._id },
+          { 
+            overdueDays: daysOverdue,
+            overdueFees: overdueFees,
+            totalAmount: user.activeLoan.totalAmount,
+            lastOverdueCalculation: new Date()
+          }
+        );
+      }
     }
 
     const availableLimit = user.maxLoanLimit - user.currentLoanBalance;
@@ -2066,6 +2094,9 @@ app.get('/api/user/profile', authenticate, async (req, res) => {
       
       loanDetails = {
         amount: activeLoan.amount,
+        principal: activeLoan.principal,
+        interestRate: activeLoan.interestRate,
+        interestAmount: activeLoan.interestAmount,
         totalAmount: activeLoan.totalAmount,
         amountPaid: totalPaid,
         amountRemaining: activeLoan.totalAmount - totalPaid,
@@ -2074,6 +2105,8 @@ app.get('/api/user/profile', authenticate, async (req, res) => {
         status: activeLoan.status,
         dueDate: dueDate.toISOString(),
         daysRemaining: Math.max(daysRemaining, 0),
+        overdueDays: activeLoan.overdueDays,
+        overdueFees: activeLoan.overdueFees,
         lastPayment: activeLoan.repaymentSchedule.slice(-1)[0]
       };
     }

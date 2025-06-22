@@ -155,6 +155,23 @@ socket.on('reconnect_failed', () => {
     showNotification('Failed to reconnect to server. Please refresh the page.', 'error');
 });
 
+// Add socket listener for overdue loan updates
+socket.on('overdueUpdate', (data) => {
+  debugLog(`Received overdueUpdate: ${JSON.stringify(data)}`);
+  
+  if (currentCustomerId === data.userId) {
+    debugLog(`Overdue update for customer ${data.userId}`);
+    loadCustomerProfile(currentCustomerId);
+  }
+  
+  // Refresh loan views if needed
+  if (currentLoanId === data.loanId) {
+    showLoanDetails(data.loanId);
+  }
+  
+  showNotification(`Overdue fees updated for loan ${data.loanId}`, 'warning');
+});
+
 // ==================== API CLIENT (UTILITY FUNCTION) ====================
 async function apiClient(endpoint, method = 'GET', body = null) {
     const token = localStorage.getItem("adminToken");
@@ -1068,27 +1085,39 @@ function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
     
     document.getElementById('loans-section-title').textContent = titleMap[status] || 'Loan Applications';
     
-    tableBody.innerHTML = loans.length ? loans.map(loan => `
-        <tr>
+    tableBody.innerHTML = loans.length ? loans.map(loan => {
+        const isOverdue = loan.status === 'defaulted' && new Date(loan.dueDate) < new Date();
+        const overdueInfo = isOverdue ? `
+          <div class="overdue-details">
+            <span>Days Overdue: ${loan.overdueDays || 0}</span>
+            <span>Fees: KES ${loan.overdueFees?.toLocaleString() || '0'}</span>
+            <span>Total Due: KES ${loan.totalAmount?.toLocaleString() || '0'}</span>
+          </div>
+        ` : '';
+        
+        return `
+          <tr>
             <td>${loan.fullName || 'Unknown'}</td>
             <td>KES ${loan.amount?.toLocaleString() || '0'}</td>
-            <td class="status-${loan.status.toLowerCase()}">${loan.status?.toUpperCase()}</td>
+            <td class="status-${loan.status.toLowerCase()}">
+              ${loan.status?.toUpperCase()}
+              ${isOverdue ? '<br><small>(OVERDUE)</small>' : ''}
+            </td>
             <td>${formatDate(loan.createdAt)}</td>
-            <td class="${isOverdue(loan) ? 'status-overdue' : ''}">
-                ${loan.dueDate ? formatDate(loan.dueDate) : 'N/A'}
+            <td class="${isOverdue ? 'status-overdue' : ''}">
+              ${loan.dueDate ? formatDate(loan.dueDate) : 'N/A'}
             </td>
             <td>
-                ${loan.status === 'pending' ? `
-                    <button class="action-btn" onclick="showApprovalTerms('${loan._id}')">APPROVE</button>
-                    <button class="action-btn" onclick="processLoan('${loan._id}', 'reject')">REJECT</button>
-                ` : ''}
-                <button class="action-btn" onclick="showLoanDetails('${loan._id}')">DETAILS</button>
-                ${loan.status === 'completed' ? `
-                    <button class="action-btn" onclick="downloadLoanDocuments('${loan._id}')">DOCUMENTS</button>
-                ` : ''}
+              ${overdueInfo}
+              ${loan.status === 'pending' ? `
+                <button class="action-btn" onclick="showApprovalTerms('${loan._id}')">APPROVE</button>
+                <button class="action-btn" onclick="processLoan('${loan._id}', 'reject')">REJECT</button>
+              ` : ''}
+              <button class="action-btn" onclick="showLoanDetails('${loan._id}')">DETAILS</button>
             </td>
-        </tr>
-    `).join('') : '<tr><td colspan="6">No loans found</td></tr>';
+          </tr>
+        `;
+    }).join('') : '<tr><td colspan="6">No loans found</td></tr>';
     
     // Add pagination controls
     if (totalPages > 1) {
@@ -1187,6 +1216,32 @@ async function showLoanDetails(loanId) {
             </div>
           </div>
         </div>
+        
+        ${loan.status === 'defaulted' ? `
+          <div class="overdue-summary">
+            <h4>Overdue Details</h4>
+            <div class="detail-row">
+              <span>Days Overdue:</span>
+              <span>${loan.overdueDays || 0}</span>
+            </div>
+            <div class="detail-row">
+              <span>Daily Penalty:</span>
+              <span>6% of principal (KES ${(loan.principal * 0.06).toLocaleString()}/day)</span>
+            </div>
+            <div class="detail-row">
+              <span>Total Penalty:</span>
+              <span>KES ${loan.overdueFees?.toLocaleString() || '0'}</span>
+            </div>
+            <div class="detail-row">
+              <span>Updated Total:</span>
+              <span>KES ${loan.totalAmount?.toLocaleString() || '0'}</span>
+            </div>
+            <div class="detail-row">
+              <span>Last Calculated:</span>
+              <span>${loan.lastOverdueCalculation ? formatDate(loan.lastOverdueCalculation) : 'N/A'}</span>
+            </div>
+          </div>
+        ` : ''}
         
         <div class="payment-summary">
           <div class="summary-card">
@@ -2038,4 +2093,15 @@ async function recordManualPayment(loanId, amount) {
   } catch (error) {
     showError(`Failed to record payment: ${error.message}`);
   }
+}
+
+// Helper function to determine current view
+function getCurrentView() {
+    if (!document.getElementById('admin-content').classList.contains('hidden')) {
+        if (!document.getElementById('loans-section').classList.contains('hidden')) return 'loans';
+        if (!document.getElementById('pending-payments-section').classList.contains('hidden')) return 'payments';
+        if (!document.getElementById('customer-profile-section').classList.contains('hidden')) return 'customer-profile';
+        return 'dashboard';
+    }
+    return 'login';
 }
