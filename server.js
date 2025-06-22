@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { body, validationResult } = require('express-validator');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -368,7 +369,6 @@ loanApplicationSchema.pre('save', function(next) {
   next();
 });
 
-// Add static method for loan status updates
 loanApplicationSchema.statics.updateLoanStatuses = async function() {
   const now = new Date();
   
@@ -384,7 +384,6 @@ loanApplicationSchema.statics.updateLoanStatuses = async function() {
         const daysOverdue = Math.floor((now - loan.dueDate) / (1000 * 60 * 60 * 24));
         const newOverdueDays = daysOverdue;
         
-        // Add validation and safe defaults
         const principal = loan.principal || 0;
         const interestAmount = loan.interestAmount || 0;
         const calculatedFees = principal * 0.06 * newOverdueDays;
@@ -403,7 +402,6 @@ loanApplicationSchema.statics.updateLoanStatuses = async function() {
           }
         );
 
-        // Notify user via socket
         if (loan.userId) {
           io.to(`user_${loan.userId}`).emit('overdueUpdate', {
             loanId: loan._id,
@@ -417,34 +415,38 @@ loanApplicationSchema.statics.updateLoanStatuses = async function() {
       }
     }
 
-    // 2. Update overdue loans that aren't yet marked as default
-    await this.updateMany({
-      status: 'active',
-      dueDate: { $lt: now },
-      markedDefault: { $ne: true }
-    }, {
-      $set: {
-        status: 'defaulted',
-        actualDueDate: now,
-        markedDefault: true,
-        overdueDays: 1,
-        overdueFees: { 
-          $cond: [
-            { $gt: ['$principal', 0] },
-            { $multiply: ['$principal', 0.06] },
-            0
-          ]
-        },
-        lastOverdueCalculation: now,
-        totalAmount: {
-          $cond: [
-            { $gt: ['$principal', 0] },
-            { $add: ['$totalAmount', { $multiply: ['$principal', 0.06] }] },
-            '$totalAmount'
-          ]
+    // 2. Update overdue loans that aren't yet marked as default (using aggregation pipeline)
+    await this.updateMany(
+      {
+        status: 'active',
+        dueDate: { $lt: now },
+        markedDefault: { $ne: true }
+      },
+      [
+        {
+          $set: {
+            status: 'defaulted',
+            actualDueDate: now,
+            markedDefault: true,
+            overdueDays: 1,
+            overdueFees: {
+              $cond: [
+                { $gt: ['$principal', 0] },
+                { $multiply: ['$principal', 0.06] },
+                0
+              ]
+            },
+            totalAmount: {
+              $cond: [
+                { $gt: ['$principal', 0] },
+                { $add: ['$totalAmount', { $multiply: ['$principal', 0.06] }] },
+                '$totalAmount'
+              ]
+            }
+          }
         }
-      }
-    });
+      ]
+    );
 
     // 3. Complete fully paid loans
     await this.updateMany({
