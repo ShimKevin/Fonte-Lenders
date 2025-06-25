@@ -505,6 +505,7 @@
             margin: 20px auto;
         }
 
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -716,7 +717,6 @@
         .status-overdue { color: var(--red); }
         .status-completed { color: var(--blue); }
 
-        /* Add to admin.css */
         .loan-details {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -751,6 +751,13 @@
 
         .status-pending { color: #FFA500; }
         .status-approved { color: #4CAF50; }
+
+        .no-payments, .error-message {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-style: italic;
+        }
         
         /* NEW: Active loans grid styles */
         .loans-grid {
@@ -843,6 +850,16 @@
           border-radius: 4px;
           margin: 15px 0;
           border-left: 4px solid #ff6b6b;
+        }
+
+        .action-btn .btn-spinner {
+            display: none;
+        }
+        .action-btn .btn-spinner.hidden {
+            display: none;
+        }
+        .action-btn .btn-text.hidden {
+            display: none;
         }
     </style>
 </head>
@@ -1030,31 +1047,29 @@
                 </table>
             </div>
         </section>
-        
+
         <!-- Pending Payments Section -->
-        <div id="pending-payments-section" class="hidden" style="margin-top: 30px;">
+         <div id="pending-payments-section" class="hidden">
             <h3 id="pending-payments-section-title">Pending Payments</h3>
-            <div id="pending-payments-table-container">
+            <div class="table-responsive">
                 <table class="loan-table">
                     <thead>
                         <tr>
                             <th>Customer</th>
-                            <th>Amount</th>
-                            <th>Reference</th>
-                            <th>Date Submitted</th>
+                            <th>Loan Amount</th>
+                            <th>Payment Due</th>
+                            <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="pending-payments-table-body">
-                        <!-- Payments will be loaded here -->
+                        <!-- Pending payments will be loaded here -->
                     </tbody>
-                </table>
+                    </table>
             </div>
-            <button class="luxury-btn" id="hide-payments-btn" style="margin-top: 20px;">
-                BACK TO DASHBOARD
-            </button>
-        </div>
-        
+            <button id="hide-loans-btn" class="luxury-btn">Back to Dashboard</button>
+         </div>
+    
         <!-- Customer Profile Section -->
         <div id="customer-profile-section" class="customer-profile-section hidden">
             <!-- Customer profiles will be loaded here -->

@@ -3,7 +3,7 @@ const API_BASE_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3000'
   : 'https://fonte-lenders.onrender.com';
 
-// Date formatting utility
+// Date formatting utility         
 function formatDate(dateString) {
   if (!dateString) return 'N/A';
   const date = new Date(dateString);
@@ -21,24 +21,97 @@ const socket = io(API_BASE_URL, {
     token: localStorage.getItem('adminToken')
   },
   reconnection: true,
-  reconnectionAttempts: 5,
+  reconnectionAttempts: 10, // Increased from 5
   reconnectionDelay: 1000,
-  autoConnect: true // This ensures it tries to connect immediately
+  reconnectionDelayMax: 10000,
+  randomizationFactor: 0.5, // Adds some randomness to reconnection delays
+  timeout: 20000, // Increased connection timeout
+  autoConnect: true,
+  transports: ['websocket', 'polling'], // Fallback transport
+  upgrade: true,
+  rememberUpgrade: true,
+  withCredentials: true
 });
 
-// Add error handlers
+// Socket.IO connection handlers
+socket.on('connect', () => {
+  debugLog('Socket connected successfully');
+  showNotification('Connected to real-time service', 'success');
+  
+  // Re-authenticate on reconnect
+  const token = localStorage.getItem('adminToken');
+  if (token) {
+    socket.emit('authenticate', { token });
+    debugLog('Sent authentication token after reconnect');
+  }
+  
+  // Join admin room if authenticated
+  if (currentAdmin) {
+    socket.emit('joinAdminRoom');
+    debugLog('Joined admin room');
+  }
+});
+
 socket.on('connect_error', (err) => {
   debugLog(`Socket connection error: ${err.message}`);
   showNotification('Connection error. Attempting to reconnect...', 'warning');
+  
+  // Exponential backoff reconnection with jitter
+  const baseDelay = Math.min(socket.reconnectionAttempts * 1000, 10000);
+  const jitter = baseDelay * 0.2 * Math.random();
+  const delay = Math.min(baseDelay + jitter, 15000);
+  
+  setTimeout(() => {
+    if (socket.disconnected) {
+      debugLog(`Attempting reconnection (attempt ${socket.reconnectionAttempts + 1}) after ${delay}ms`);
+      socket.connect();
+    }
+  }, delay);
 });
 
 socket.on('disconnect', (reason) => {
   debugLog(`Socket disconnected: ${reason}`);
+  
   if (reason === 'io server disconnect') {
-    // Auto-reconnect if server drops connection
-    socket.connect();
-    showNotification('Reconnecting to server...', 'info');
+    // Server-initiated disconnect (likely auth failure)
+    showNotification('Server disconnected. Please refresh the page.', 'error');
+  } else {
+    // Network issues or voluntary disconnect
+    showNotification('Connection lost. Reconnecting...', 'warning');
+    
+    // Auto-reconnect with increasing delay
+    const delay = Math.min(socket.reconnectionAttempts * 1500, 15000);
+    setTimeout(() => {
+      if (socket.disconnected) {
+        debugLog(`Attempting reconnect after ${delay}ms`);
+        socket.connect();
+      }
+    }, delay);
   }
+});
+
+socket.on('reconnect_attempt', (attempt) => {
+  debugLog(`Reconnection attempt ${attempt}`);
+  // Switch transport method if needed
+  if (attempt % 2 === 0) {
+    socket.io.opts.transports = ['polling', 'websocket'];
+  }
+});
+
+socket.on('reconnect_failed', () => {
+  debugLog('Reconnection failed after maximum attempts');
+  showNotification('Failed to establish connection. Please check your network and refresh the page.', 'error');
+});
+
+// Authentication handlers
+socket.on('authenticated', () => {
+  debugLog('Socket authentication successful');
+});
+
+socket.on('unauthorized', (err) => {
+  debugLog(`Socket auth failed: ${err.message}`);
+  showNotification('Session expired. Please login again.', 'error');
+  logout();
 });
 
 // Global variables
@@ -276,94 +349,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     debugLog('DOMContentLoaded - Initializing admin portal');
     await checkAuthStatus();
     setupEventListeners();
+    setupModalCloseHandlers();
     
     // Add admin to admin room if authenticated
     if (currentAdmin) {
         socket.emit('joinAdminRoom');
         debugLog('Joined admin room');
-    }
-    
-    // Listen for loan updates
-    socket.on('loanUpdate', (data) => {
-        debugLog(`Received loanUpdate: ${JSON.stringify(data)}`);
-        
-        // Refresh all relevant sections
-        if (currentCustomerId === data.userId) {
-            loadCustomerProfile(currentCustomerId);
-        }
-        
-        showLoans('pending');
-        showLoans('active');
-        showPendingPayments();
-        
-        // Show notification
-        showNotification(`Loan ${data.loanId} ${data.status} by ${data.adminName}`, 'info');
-    });
-
-    // Add new socket listeners
-    socket.on('paymentUpdate', (data) => {
-        debugLog(`Received paymentUpdate: ${JSON.stringify(data)}`);
-        
-        // Refresh all relevant sections
-        if (currentCustomerId === data.userId) {
-            loadCustomerProfile(currentCustomerId);
-        }
-        
-        showPendingPayments();
-        
-        if (currentLoanId === data.loanId) {
-            showLoanDetails(data.loanId);
-        }
-        
-        // Show notification
-        showNotification(`Payment ${data.status} for loan ${data.loanId}`, 'info');
-    });
-    
-    socket.on('limitUpdate', (data) => {
-        debugLog(`Received limitUpdate: ${JSON.stringify(data)}`);
-        showNotification(`Loan limit updated for customer`, 'info');
-        
-        // Refresh customer view if we're looking at it
-        if (currentCustomerId === data.customerId) {
-            loadCustomerProfile(data.customerId);
-        }
-    });
-    
-    // Listen for loan approval events
-    socket.on('loanApproved', (data) => {
-        debugLog(`Received loanApproved event: ${JSON.stringify(data)}`);
-        
-        // Refresh customer profile if viewing the customer
-        if (currentCustomerId === data.userId) {
-            loadCustomerProfile(currentCustomerId);
-            debugLog(`Refreshed customer profile for ${currentCustomerId}`);
-        }
-        
-        // Refresh loan lists
-        const currentStatus = document.getElementById('loans-section-title')?.textContent || '';
-        if (currentStatus.includes('Pending') || currentStatus.includes('Active')) {
-            showLoans('pending');
-            debugLog('Refreshed loans list after approval');
-        }
-    });
-    
-    // Handle socket errors
-    socket.on('connect_error', (error) => {
-        debugLog(`Socket connection error: ${error.message}`);
-        showNotification('Connection lost. Trying to reconnect...', 'error');
-    });
-    
-    socket.on('reconnect', () => {
-        debugLog('Socket reconnected');
-        showNotification('Connection restored', 'success');
-    });
-    
-    const loginButton = document.getElementById('login-button');
-    if (loginButton) {
-        loginButton.addEventListener('click', checkPassword);
-        debugLog('Login button event listener added');
+        loadAdminData();
     }
 });
+
+function setupModalCloseHandlers() {
+  document.querySelectorAll('.close-modal').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const modal = this.closest('.modal');
+      if (modal) {
+        modal.style.display = 'none';
+      }
+    });
+  });
+  
+  // Close when clicking outside modal content
+  document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', function(e) {
+      if (e.target === this) {
+        this.style.display = 'none';
+      }
+    });
+  });
+}
 
 // ==================== CHECK PASSWORD FUNCTION ====================
 async function checkPassword() {
@@ -414,6 +428,7 @@ async function adminLogin(username, password) {
 
         if (response.ok && data.success) {
             localStorage.setItem("adminToken", data.token);
+            localStorage.setItem("adminRefreshToken", data.refreshToken);
             localStorage.setItem("adminId", data.admin._id || data.admin.id);
             currentAdmin = data.admin;
             showAdminContent();
@@ -451,7 +466,6 @@ async function checkAuthStatus() {
                 currentAdmin = data.admin;
                 localStorage.setItem("adminId", data.admin._id || data.admin.id);
                 showAdminContent();
-                loadAdminData();
                 return;
             }
         }
@@ -1469,222 +1483,559 @@ async function processLoan(loanId, action) {
 }
 
 // ==================== PAYMENT MANAGEMENT ====================
+
+/**
+ * Displays pending payments with pagination
+ * @param {number} page - Current page number
+ */
 async function showPendingPayments(page = 1) {
     try {
+        debugLog('Showing pending payments...');
+        
+        // Verify all required DOM elements exist
+        const section = document.getElementById('pending-payments-section');
+        const tableBody = document.getElementById('pending-payments-table-body');
+        const titleElement = document.getElementById('pending-payments-section-title');
+        
+        if (!section || !tableBody || !titleElement) {
+            throw new Error('Required DOM elements for payments not found');
+        }
+
         showLoading('pending-payments');
-        debugLog(`Loading pending payments, page ${page}`);
         const response = await apiClient(`/api/admin/pending-payments?page=${page}&limit=20`);
-        displayPendingPayments(response.payments || [], response.totalPages, page);
+        
+        if (!response?.success) {
+            throw new Error(response?.message || 'Invalid server response');
+        }
+
+        // Clear previous content
+        tableBody.innerHTML = '';
+        
+        // Update title with count
+        titleElement.textContent = `Pending Payments (${response.payments?.length || 0})`;
+        
+        // Handle empty response
+        if (!response.payments || response.payments.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="5" class="no-payments">No pending payments found</td></tr>';
+        } else {
+            // Render payment rows
+            tableBody.innerHTML = renderPaymentRows(response.payments);
+            
+            // Add pagination if needed
+            if (response.totalPages > 1) {
+                renderPaginationControls(tableBody, response.totalPages, page);
+            }
+        }
+        
+        // Show the section
+        document.getElementById('admin-grid').classList.add('hidden');
+        section.classList.remove('hidden');
+        
     } catch (error) {
-        debugLog(`Failed to load pending payments: ${error.message}`);
-        showError(`Failed to load pending payments: ${error.message}`, 'pending-payments');
+        debugLog(`Payment display error: ${error.message}`);
+        showError(`Failed to load payments: ${error.message}`);
+        
+        // Ensure we don't leave the UI in a broken state
+        if (tableBody) {
+            tableBody.innerHTML = '<tr><td colspan="5" class="error-message">Error loading payments</td></tr>';
+        }
     } finally {
         hideLoading('pending-payments');
     }
 }
-
+/**
+ * Renders pending payments table
+ * @param {Array} payments - Array of payment objects
+ * @param {number} totalPages - Total number of pages
+ * @param {number} currentPage - Current page number
+ */
 function displayPendingPayments(payments, totalPages = 1, currentPage = 1) {
-    const tableBody = document.getElementById('pending-payments-table-body');
-    const title = `Pending Payments (${payments.length})`;
-    
-    document.getElementById('pending-payments-section-title').textContent = title;
-    
-    tableBody.innerHTML = payments.length ? payments.map(payment => `
-        <tr>
-            <td>
-                <div class="customer-link" onclick="viewCustomerProfile('${payment.userId._id}')">
-                    <i class="fas fa-user"></i> ${payment.userId.fullName || 'Unknown'}
-                </div>
-            </td>
-            <td>KES ${payment.amount?.toLocaleString() || '0'}</td>
-            <td>${payment.reference}</td>
-            <td>${formatDate(payment.createdAt)}</td>
-            <td>
-                <button class="action-btn" onclick="approvePayment('${payment._id}')">APPROVE</button>
-                <button class="action-btn" onclick="rejectPayment('${payment._id}')">REJECT</button>
-            </td>
-        </tr>
-    `).join('') : '<tr><td colspan="5">No pending payments</tr>';
-    
-    // Add pagination controls
-    if (totalPages > 1) {
-        const pagination = document.createElement('div');
-        pagination.className = 'pagination';
-        pagination.style.marginTop = '20px';
+    try {
+        debugLog('Attempting to display payments...');
         
-        for (let i = 1; i <= totalPages; i++) {
-            const pageBtn = document.createElement('button');
-            pageBtn.textContent = i;
-            pageBtn.className = i === currentPage ? 'active' : '';
-            pageBtn.addEventListener('click', () => showPendingPayments(i));
-            pagination.appendChild(pageBtn);
+        const tableBody = document.getElementById('pending-payments-table-body');
+        const titleElement = document.getElementById('pending-payments-section-title');
+        const sectionElement = document.getElementById('pending-payments-section');
+        
+        if (!tableBody || !titleElement || !sectionElement) {
+            const missingElements = [];
+            if (!tableBody) missingElements.push('tableBody');
+            if (!titleElement) missingElements.push('titleElement');
+            if (!sectionElement) missingElements.push('sectionElement');
+            
+            debugLog(`Missing DOM elements: ${missingElements.join(', ')}`);
+            throw new Error(`Required DOM elements not found: ${missingElements.join(', ')}`);
         }
         
-        // Remove existing pagination
-        const existingPagination = tableBody.parentNode.querySelector('.pagination');
-        if (existingPagination) existingPagination.remove();
+        debugLog(`Rendering ${payments.length} payments`);
+        const title = `Pending Payments (${payments.length})`;
+        titleElement.textContent = title;
         
-        tableBody.parentNode.appendChild(pagination);
+        tableBody.innerHTML = payments.length ? payments.map(payment => {
+            const customerName = payment.userId?.fullName || 'Unknown';
+            const customerId = payment.userId?._id || '';
+            const amount = payment.amount ? `KES ${payment.amount.toLocaleString()}` : 'KES 0';
+            const reference = payment.reference || 'N/A';
+            const date = payment.createdAt ? formatDate(payment.createdAt) : 'N/A';
+            
+            return `
+                <tr data-payment-id="${payment._id}">
+                    <td>
+                        <div class="customer-link" onclick="viewCustomerProfile('${customerId}')">
+                            <i class="fas fa-user"></i> ${customerName}
+                        </div>
+                    </td>
+                    <td>${amount}</td>
+                    <td>${reference}</td>
+                    <td>${date}</td>
+                    <td>
+                        <button class="action-btn approve-btn" onclick="approvePayment('${payment._id}')">
+                            APPROVE
+                        </button>
+                        <button class="action-btn reject-btn" onclick="rejectPayment('${payment._id}')">
+                            REJECT
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('') : '<tr><td colspan="5">No pending payments</td></tr>';
+        
+        if (totalPages > 1) {
+            renderPaginationControls(tableBody, totalPages, currentPage);
+        }
+        
+        document.getElementById('admin-grid').classList.add('hidden');
+        sectionElement.classList.remove('hidden');
+        debugLog('Payments displayed successfully');
+    } catch (error) {
+        debugLog(`Error displaying payments: ${error.message}`);
+        showError(`Failed to display payments: ${error.message}`);
     }
-    
-    document.getElementById('admin-grid').classList.add('hidden');
-    document.getElementById('pending-payments-section').classList.remove('hidden');
 }
-
-// Enhanced Payment Approval Function
+/**
+ * Renders pagination controls
+ */
+function renderPaymentRows(payments) {
+    if (!payments || !Array.isArray(payments)) return '';
+    
+    return payments.map(payment => {
+        const customerId = payment.userId?._id || '';
+        const customerName = payment.userId?.fullName || 'Unknown Customer';
+        const amount = payment.amount ? `KES ${payment.amount.toLocaleString()}` : 'KES 0';
+        const reference = payment.reference || 'N/A';
+        const date = payment.createdAt ? formatDate(payment.createdAt) : 'N/A';
+        
+        return `
+            <tr data-payment-id="${payment._id}">
+                <td>
+                    <div class="customer-link" onclick="viewCustomerProfile('${customerId}')">
+                        <i class="fas fa-user"></i> ${customerName}
+                    </div>
+                </td>
+                <td>${amount}</td>
+                <td>${reference}</td>
+                <td>${date}</td>
+                <td>
+                    <button class="action-btn approve-btn" onclick="approvePayment('${payment._id}')">
+                        APPROVE
+                    </button>
+                    <button class="action-btn reject-btn" onclick="rejectPayment('${payment._id}')">
+                        REJECT
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+/**
+ * Handles payment approval with enhanced transaction handling
+ * @param {string} paymentId - ID of payment to approve
+ */
 async function approvePayment(paymentId) {
-  try {
-    // Validate admin session
-    if (!currentAdmin || !currentAdmin.username) {
-      showError('Admin session expired. Please login again.');
-      return;
-    }
-
-    // Get payment details
-    const payment = await getPayment(paymentId);
+    if (!confirm('Are you sure you want to approve this payment?\n\nThis action cannot be undone.')) return;
     
-    // Validate payment
-    if (!payment || payment.status !== 'pending') {
-      showError('Payment is not available for approval');
-      return;
-    }
-
-    if (!validatePaymentAmount(payment.amount)) {
-      showError('Invalid payment amount');
-      return;
-    }
-
-    // Process approval
-    const response = await apiClient(
-      `/api/admin/payments/${paymentId}/status`,
-      'PATCH',
-      { status: 'approved' }
-    );
+    const row = document.querySelector(`tr[data-payment-id="${paymentId}"]`);
+    const approveBtn = document.getElementById(`approve-btn-${paymentId}`);
+    const tableBody = document.getElementById('pending-payments-table-body');
     
-    if (response.success) {
-      // Show success notification
-      showNotification(
-        `Payment approved for ${response.data.customer.fullName}!`,
-        'success'
-      );
-      
-      // Refresh UI components
-      refreshApplicationAfterPayment(response.data);
-    } else {
-      showError(response.message || 'Failed to approve payment');
+    // Optimistic UI update
+    if (row) {
+        row.classList.add('processing');
+        row.querySelectorAll('button').forEach(btn => btn.disabled = true);
     }
-  } catch (error) {
-    showError(`Failed to approve payment: ${error.message}`);
-    console.error('Payment approval error:', error);
-  }
+    toggleButtonLoading(approveBtn, true);
+    updatePendingCount(-1);
+
+    try {
+        const response = await apiClient(
+            `/api/admin/payments/${paymentId}/status`,
+            'PATCH',
+            { status: 'approved' },
+            { timeout: 30000 } // 30 second timeout
+        );
+        
+        showNotification('Payment approved successfully!', 'success');
+        
+        // Complete UI update
+        if (row) {
+            row.remove();
+            // Add visual feedback for successful approval
+            const successRow = document.createElement('tr');
+            successRow.className = 'success-feedback';
+            successRow.innerHTML = `
+                <td colspan="5">
+                    <i class="fas fa-check-circle"></i> 
+                    Payment approved successfully
+                </td>
+            `;
+            tableBody.prepend(successRow);
+            setTimeout(() => successRow.remove(), 3000);
+        }
+
+        // Handle successful response
+        if (response.data && response.data.isFullyPaid) {
+            debugLog(`Loan ${response.data.loanId} fully paid`);
+            showNotification('Loan fully paid!', 'success');
+        }
+        
+    } catch (error) {
+        console.error('Approval failed:', error);
+        
+        // Handle transaction errors specifically
+        if (error.code === 251 || error.code === 'NoSuchTransaction') {
+            showNotification('Transaction error. Please try approving again.', 'error', 5000);
+        } 
+        // Handle timeout errors
+        else if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
+            showNotification('Request timed out. Please check your connection and try again.', 'error', 5000);
+        }
+        // Handle other specific errors
+        else if (error.code === 'INVALID_PAYMENT_STATUS') {
+            showNotification(`Payment cannot be approved: ${error.message}`, 'error');
+        } else if (error.code === 'PAYMENT_NOT_FOUND') {
+            showNotification('Payment not found. It may have been processed by another admin.', 'error');
+        } else if (error.response?.status === 503) {
+            showNotification('Service temporarily unavailable. Please try again later.', 'error', 5000);
+        } else {
+            showNotification(`Failed to approve payment: ${error.message || 'Please try again'}`, 'error');
+        }
+        
+        // Revert UI if error occurs
+        if (row) {
+            row.classList.remove('processing');
+            row.querySelectorAll('button').forEach(btn => btn.disabled = false);
+            tableBody.appendChild(row);
+        }
+        updatePendingCount(1);
+    } finally {
+        toggleButtonLoading(approveBtn, false);
+    }
 }
 
-// Enhanced Payment Rejection Function
+/**
+ * Handles payment approval with token refresh capability
+ * @param {string} paymentId - ID of payment to approve
+ */
+async function confirmLoanApproval() {
+    const interestRate = parseFloat(document.getElementById('interestRate').value);
+    const repaymentPeriod = parseInt(document.getElementById('repaymentPeriod').value);
+    const adminNotes = document.getElementById('adminNotes').value;
+
+    if (!currentLoanId || isNaN(interestRate) || isNaN(repaymentPeriod)) {
+        showError('Please fill all required fields with valid values');
+        return;
+    }
+
+    try {
+        showLoading('approvalTermsModal');
+        debugLog(`Approving loan ${currentLoanId} with terms: ${interestRate}%, ${repaymentPeriod} days`);
+        
+        const response = await apiClient(
+            `/api/admin/loan-applications/${currentLoanId}/approve`,
+            'PATCH',
+            { interestRate, repaymentPeriod, adminNotes }
+        );
+
+        if (response.success) {
+            showSuccess('Loan approved successfully!');
+            closeModal('approvalTermsModal');
+            
+            // Refresh the loans view
+            showLoans('pending');
+            
+            // Emit socket event
+            socket.emit('loanApproved', {
+                loanId: currentLoanId,
+                adminName: currentAdmin.username,
+                userId: response.data?.userId,
+                interestRate,
+                repaymentPeriod
+            });
+        } else {
+            throw new Error(response.message || 'Failed to approve loan');
+        }
+    } catch (error) {
+        debugLog(`Loan approval failed: ${error.message}`);
+        showError(error.message || 'Failed to approve loan. Please try again.', 'approvalTermsModal');
+    } finally {
+        hideLoading('approvalTermsModal');
+    }
+}
+
+/**
+ * Attempts to approve payment with error handling
+ */
+async function attemptPaymentApproval(paymentId) {
+    try {
+        const response = await apiClient(
+            `/api/admin/payments/${paymentId}/status`,
+            'PATCH',
+            { status: 'approved' },
+            { timeout: 30000 }
+        );
+        return response;
+    } catch (error) {
+        if (error.response?.data?.code === 'TokenExpiredError') {
+            return { error: 'TokenExpired', message: error.message };
+        }
+        throw error;
+    }
+}
+
+/**
+ * Handles payment rejection with token refresh capability
+ * @param {string} paymentId - ID of payment to reject
+ */
 async function rejectPayment(paymentId) {
-  try {
-    // Validate admin session
-    if (!currentAdmin || !currentAdmin.username) {
-      showError('Admin session expired. Please login again.');
-      return;
+    let reason;
+    while (true) {
+        reason = prompt('Please enter the rejection reason (min 5 characters, max 500 characters):');
+        if (reason === null) return; // User cancelled
+        
+        if (!reason || reason.trim().length < 5) {
+            showNotification('Reason must be at least 5 characters', 'error');
+            continue;
+        }
+        if (reason.length > 500) {
+            showNotification('Reason cannot exceed 500 characters', 'error');
+            continue;
+        }
+        break;
     }
 
-    // Get payment details
-    const payment = await getPayment(paymentId);
+    const row = document.querySelector(`tr[data-payment-id="${paymentId}"]`);
+    const rejectBtn = document.getElementById(`reject-btn-${paymentId}`);
+    const tableBody = document.getElementById('pending-payments-table-body');
     
-    // Validate payment
-    if (!payment || payment.status !== 'pending') {
-      showError('Payment is not available for rejection');
-      return;
+    // Optimistic UI update
+    if (row) {
+        row.classList.add('processing');
+        row.querySelectorAll('button').forEach(btn => btn.disabled = true);
     }
+    toggleButtonLoading(rejectBtn, true);
+    updatePendingCount(-1);
 
-    // Get rejection reason
-    const reason = prompt('Reason for rejection (minimum 5 characters):');
-    if (!reason || reason.trim().length < 5) {
-      showError('Please provide a valid reason (at least 5 characters)');
-      return;
+    try {
+        // First attempt
+        let response = await attemptPaymentRejection(paymentId, reason);
+        
+        // If token expired, refresh and try again
+        if (response?.error === 'TokenExpired') {
+            await refreshAdminToken();
+            response = await attemptPaymentRejection(paymentId, reason);
+        }
+
+        if (response.error) {
+            throw new Error(response.message || 'Payment rejection failed');
+        }
+
+        showNotification('Payment rejected successfully', 'warning');
+        
+        // Complete UI update
+        if (row) {
+            row.remove();
+            // Add visual feedback for successful rejection
+            const feedbackRow = document.createElement('tr');
+            feedbackRow.className = 'warning-feedback';
+            feedbackRow.innerHTML = `
+                <td colspan="5">
+                    <i class="fas fa-exclamation-circle"></i> 
+                    Payment rejected: ${reason.substring(0, 50)}${reason.length > 50 ? '...' : ''}
+                </td>
+            `;
+            tableBody.prepend(feedbackRow);
+            setTimeout(() => feedbackRow.remove(), 5000);
+        }
+        
+    } catch (error) {
+        console.error('Rejection failed:', error);
+        handlePaymentError(error, row);
+    } finally {
+        toggleButtonLoading(rejectBtn, false);
     }
+}
 
-    // Process rejection
-    const response = await apiClient(
-      `/api/admin/payments/${paymentId}/status`,
-      'PATCH', 
-      { 
-        status: 'rejected',
-        reason 
-      }
-    );
+/**
+ * Attempts to reject payment with error handling
+ */
+async function attemptPaymentRejection(paymentId, reason) {
+    try {
+        const response = await apiClient(
+            `/api/admin/payments/${paymentId}/status`,
+            'PATCH',
+            { status: 'rejected', reason },
+            { timeout: 30000 }
+        );
+        return response;
+    } catch (error) {
+        if (error.response?.data?.code === 'TokenExpiredError') {
+            return { error: 'TokenExpired', message: error.message };
+        }
+        throw error;
+    }
+}
 
-    if (response.success) {
-      showNotification(
-        `Payment #${paymentId.slice(-6)} rejected successfully`,
-        'success'
-      );
-      
-      refreshApplicationAfterPayment(response.data);
+/**
+ * Handles payment operation errors consistently
+ */
+function handlePaymentError(error, row) {
+    // Handle token expiration
+    if (error.response?.data?.code === 'TokenExpiredError' || error.message.includes('jwt expired')) {
+        showNotification('Session expired. Please refresh the page and log in again.', 'error', 5000);
+    }
+    // Handle transaction errors
+    else if (error.code === 251 || error.code === 'NoSuchTransaction') {
+        showNotification('Transaction error. Please try the operation again.', 'error', 5000);
+    }
+    // Handle timeout errors
+    else if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
+        showNotification('Request timed out. Please check your connection and try again.', 'error', 5000);
+    }
+    // Handle other specific errors
+    else if (error.code === 'INVALID_PAYMENT_STATUS') {
+        showNotification(`Payment cannot be processed: ${error.message}`, 'error');
+    } else if (error.code === 'PAYMENT_NOT_FOUND') {
+        showNotification('Payment not found. It may have been processed by another admin.', 'error');
+    } else if (error.response?.status === 503) {
+        showNotification('Service temporarily unavailable. Please try again later.', 'error', 5000);
     } else {
-      showError(response.message || 'Failed to reject payment');
+        showNotification(`Operation failed: ${error.message || 'Please try again'}`, 'error');
     }
-  } catch (error) {
-    showError(`Failed to reject payment: ${error.message}`);
-    console.error('Payment rejection error:', error);
-  }
-}
-
-// Socket.IO Real-time Updates
-socket.on('paymentApproved', (data) => {
-  if (currentCustomerId === data.userId || isAdminView) {
-    showNotification(`Your payment of $${data.amount} was approved! New balance: $${data.newBalance}`, 'success');
     
-    // Refresh relevant UI components
-    if (currentLoanId === data.loanId) {
-      loadLoanDetails(data.loanId);
+    // Revert UI if error occurs
+    if (row) {
+        const tableBody = document.getElementById('pending-payments-table-body');
+        row.classList.remove('processing');
+        row.querySelectorAll('button').forEach(btn => btn.disabled = false);
+        tableBody.appendChild(row);
     }
-    if (isAdminView) {
-      refreshDashboard();
-    }
-  }
-});
+    updatePendingCount(1);
+}
 
-socket.on('paymentRejected', (data) => {
-  if (currentCustomerId === data.userId || isAdminView) {
-    showNotification(`Payment #${data.paymentId.slice(-6)} was rejected. Reason: ${data.reason}`, 'warning');
+/**
+ * Refreshes admin token silently
+ */
+async function refreshAdminToken() {
+    try {
+        const response = await apiClient('/api/admin/refresh-token', 'POST');
+        if (response.token) {
+            localStorage.setItem('adminToken', response.token);
+            return true;
+        }
+    } catch (error) {
+        console.error('Token refresh failed:', error);
+        // Force logout if refresh fails
+        localStorage.removeItem('adminToken');
+        window.location.href = '/admin/login';
+    }
+    return false;
+}
+
+/**
+ * Toggles button loading state
+ */
+function toggleButtonLoading(button, isLoading) {
+    if (button) {
+        button.disabled = isLoading;
+        button.querySelector('.btn-text').classList.toggle('hidden', isLoading);
+        const spinner = button.querySelector('.btn-spinner');
+        spinner.classList.toggle('hidden', !isLoading);
+        
+        const row = button.closest('tr');
+        if (row) {
+            row.classList.toggle('processing', isLoading);
+        }
+    }
+}
+
+/**
+ * Updates the pending payments count
+ */
+function updatePendingCount(change) {
+    const title = document.getElementById('pending-payments-section-title');
+    if (title) {
+        const match = title.textContent.match(/\((\d+)\)/);
+        const currentCount = match ? parseInt(match[1]) : 0;
+        const newCount = Math.max(0, currentCount + change);
+        
+        title.style.transition = 'color 0.3s ease';
+        title.style.color = change < 0 ? '#4CAF50' : '#F44336';
+        setTimeout(() => {
+            title.style.color = '';
+        }, 300);
+        
+        title.textContent = title.textContent.replace(/\(\d+\)/, `(${newCount})`);
+    }
+}
+
+/**
+ * Returns to admin dashboard
+ */
+function backToDashboard() {
+    // Get references to all relevant sections
+    const adminGrid = document.getElementById('admin-grid');
+    const loansSection = document.getElementById('loans-section');
+    const paymentsSection = document.getElementById('pending-payments-section');
+    const profileSection = document.getElementById('customer-profile-section');
     
-    // Refresh relevant UI components
-    if (isAdminView) {
-      refreshDashboard();
+    // Apply fade-out animation to visible sections
+    if (!loansSection.classList.contains('hidden')) {
+        fadeOutSection(loansSection);
     }
-  }
-});
-
-// Helper Functions
-async function getPayment(paymentId) {
-  const response = await apiClient(`/api/payments/${paymentId}`);
-  if (!response.success) throw new Error(response.message || 'Failed to fetch payment');
-  return response.data;
+    if (!paymentsSection.classList.contains('hidden')) {
+        fadeOutSection(paymentsSection);
+    }
+    if (!profileSection.classList.contains('hidden')) {
+        fadeOutSection(profileSection);
+    }
+    
+    // Show main dashboard with fade-in
+    adminGrid.classList.remove('hidden');
+    fadeInSection(adminGrid);
+    
+    // Clear current customer/loan
+    currentCustomerId = null;
+    currentLoanId = null;
 }
 
-function refreshApplicationAfterPayment(paymentData) {
-  // Refresh pending payments list
-  showPendingPayments();
-  
-  // Update dashboard metrics
-  loadAdminData();
-  
-  // Refresh customer profile if currently viewing
-  if (currentCustomerId === paymentData.userId) {
-    loadCustomerProfile(paymentData.userId);
-  }
-  
-  // Refresh loan details if currently viewing
-  if (currentLoanId === paymentData.loanId) {
-    showLoanDetails(paymentData.loanId);
-  }
+// Helper functions for smooth transitions
+function fadeOutSection(section) {
+    section.style.opacity = '1';
+    section.style.transition = 'opacity 0.3s ease';
+    
+    setTimeout(() => {
+        section.style.opacity = '0';
+        setTimeout(() => {
+            section.classList.add('hidden');
+        }, 300);
+    }, 0);
 }
 
-// Shared validation (matches backend validation)
-function validatePaymentAmount(amount) {
-  const num = Number(amount);
-  return !isNaN(num) && num > 0 && num < 1000000 && isFinite(num);
+function fadeInSection(section) {
+    section.style.opacity = '0';
+    setTimeout(() => {
+        section.style.opacity = '1';
+    }, 10);
 }
 
 // ==================== REPORTING ====================
@@ -1782,67 +2133,6 @@ function exportReport() {
 }
 
 // ==================== UTILITY FUNCTIONS ====================
-async function apiClient(endpoint, method = 'GET', body = null) {
-    const token = localStorage.getItem("adminToken");
-    if (!token) {
-        debugLog('No token found - logging out');
-        logout();
-        throw new Error('Authentication required');
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
-    try {
-        debugLog(`API request: ${method} ${endpoint}`);
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-            method,
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: body ? JSON.stringify(body) : null,
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-        
-        // Handle 204 No Content responses
-        if (response.status === 204) {
-            return { success: true };
-        }
-        
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-            const text = await response.text();
-            debugLog(`Non-JSON response: ${text}`);
-            throw new Error('Invalid server response');
-        }
-
-        const data = await response.json();
-        debugLog(`API response: ${response.status} ${JSON.stringify(data)}`);
-        
-        if (!response.ok) {
-            if (response.status === 401) {
-                debugLog('Token expired - logging out');
-                logout();
-                throw new Error('Session expired. Please login again.');
-            }
-            throw new Error(data.message || `Request failed with status ${response.status}`);
-        }
-        
-        return data;
-    } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-            debugLog(`API timeout: ${endpoint}`);
-            throw new Error('Request timed out');
-        }
-        debugLog(`API error: ${error.message}`);
-        throw error;
-    }
-}
-
 function showLoading(context) {
     const element = document.getElementById(context);
     if (element) {
@@ -1940,11 +2230,14 @@ function showLongOperationWarning() {
 function setupEventListeners() {
     debugLog('Setting up event listeners');
     
+    // Verify critical DOM elements first
+    verifyCriticalElements();
+    
     // Authentication
+    document.getElementById("login-button")?.addEventListener("click", checkPassword);
     document.getElementById("username-input")?.addEventListener("keypress", e => {
         if (e.key === 'Enter') checkPassword();
     });
-    
     document.getElementById("password-input")?.addEventListener("keypress", e => {
         if (e.key === 'Enter') checkPassword();
     });
@@ -2007,21 +2300,33 @@ function setupEventListeners() {
         });
     });
     
-    // Pending payments button
+    // Pending payments button (with enhanced verification)
     document.getElementById('pending-payments-btn')?.addEventListener('click', () => {
-        showPendingPayments();
+        if (verifyPaymentElements()) {
+            showPendingPayments();
+        } else {
+            showError('Payment system components not loaded');
+        }
     });
     
     // Back buttons
-    document.getElementById('hide-loans-btn')?.addEventListener('click', hideLoans);
-    document.getElementById('hide-payments-btn')?.addEventListener('click', hidePendingPayments);
-    
+    document.getElementById('hide-loans-btn')?.addEventListener('click', () => {
+    debugLog('Hide Loans button clicked');
+    backToDashboard();
+    });
+       
     // Logout button
-    document.getElementById('logout-btn')?.addEventListener('click', logout);
+    document.getElementById('logout-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        logout();
+    });
     
     // Debug toggle
-    document.getElementById('debug-toggle-btn')?.addEventListener('click', enableDebugConsole);
-    
+    document.getElementById('debug-toggle-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        toggleDebugConsole();
+    });
+
     // Bulk process button
     document.getElementById('process-bulk-btn')?.addEventListener('click', processBulkLimits);
     
@@ -2029,8 +2334,63 @@ function setupEventListeners() {
     document.getElementById('confirm-approval-btn')?.addEventListener('click', confirmLoanApproval);
     
     // Refresh button
-    document.getElementById('refresh-admin-btn')?.addEventListener('click', refreshAdminPortal);
+    document.getElementById('refresh-admin-btn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        await refreshAdminPortal();
+    });
 }
+
+// ==================== DOM VERIFICATION ====================
+function verifyCriticalElements() {
+    debugLog('Verifying critical DOM elements');
+    const checkElements = [
+        'pending-payments-table-body',
+        'pending-payments-section-title',
+        'pending-payments-section',
+        'admin-grid',
+        'login-button',
+        'logout-btn'
+    ];
+    
+    checkElements.forEach(id => {
+        const el = document.getElementById(id);
+        debugLog(`${id} exists: ${!!el}`);
+        if (!el) {
+            console.error(`Missing element: #${id}`);
+            showError(`System error: Missing component #${id}`);
+        }
+    });
+}
+
+function verifyPaymentElements() {
+    const requiredElements = [
+        'pending-payments-table-body',
+        'pending-payments-section-title',
+        'pending-payments-section'
+    ];
+    
+    return requiredElements.every(id => {
+        const exists = !!document.getElementById(id);
+        if (!exists) debugLog(`Payment element missing: #${id}`);
+        return exists;
+    });
+}
+
+// ==================== INITIALIZATION ====================
+document.addEventListener('DOMContentLoaded', () => {
+    debugLog('DOM fully loaded');
+    
+    // Verify all elements before setup
+    verifyCriticalElements();
+    
+    // Setup event listeners
+    setupEventListeners();
+    
+    // Load data if already on admin page
+    if (document.getElementById('admin-content')?.classList.contains('hidden') === false) {
+        loadAdminData();
+    }
+});
 
 // ==================== UI STATE MANAGEMENT ====================
 function showLoginContent() {
@@ -2071,34 +2431,93 @@ function closeModal(modalId) {
 }
 
 function logout() {
-    debugLog('Logging out...');
+  debugLog('Logging out...');
+  
+  try {
+    // Clear all auth-related data (more specific than localStorage.clear())
     localStorage.removeItem("adminToken");
+    localStorage.removeItem("adminRefreshToken");
     localStorage.removeItem("adminId");
-    currentAdmin = null;
-    currentCustomerId = null;
     
-    // Cleanup socket listeners and disconnect
-    if (socket) {
-        socket.off('loanUpdate');
-        socket.off('paymentUpdate');
-        socket.off('limitUpdate');
-        socket.off('loanApproved');
-        socket.off('connect_error');
-        socket.off('reconnect');
+    // Clear any other admin-related storage if needed
+    const adminKeys = Object.keys(localStorage).filter(key => key.startsWith('admin_'));
+    adminKeys.forEach(key => localStorage.removeItem(key));
+    
+    // Disconnect socket with better error handling
+    if (socket?.connected) {
+      try {
         socket.disconnect();
-        debugLog('Socket disconnected and listeners removed');
+        debugLog('Socket disconnected');
+      } catch (socketError) {
+        debugLog('Socket disconnect error:', socketError);
+      }
     }
     
-    showLoginContent();
+    // Reset state
+    currentAdmin = currentCustomerId = currentLoanId = null;
+    
+    // Main redirect attempt with enhanced URL handling
+    const redirectUrl = new URL('/admin.html', window.location.origin);
+    redirectUrl.searchParams.set('logout', 'true');
+    redirectUrl.searchParams.set('t', Date.now()); // Cache busting
+    
+    // Primary redirect with fallback mechanism
+    let redirectSuccess = false;
+    try {
+      window.location.assign(redirectUrl.href);
+      redirectSuccess = true;
+    } catch (e) {
+      debugLog(`Primary redirect failed: ${e.message}`);
+    }
+    
+    // Fallback sequence with timing
+    const fallbackPaths = [
+      '/admin.html',
+      '/admin',
+      '/',
+    ];
+    
+    const fallbackAttempt = (index = 0) => {
+      if (index >= fallbackPaths.length || redirectSuccess) return;
+      
+      try {
+        window.location.href = fallbackPaths[index];
+        redirectSuccess = true;
+      } catch (e) {
+        debugLog(`Fallback ${index} failed: ${e.message}`);
+        setTimeout(() => fallbackAttempt(index + 1), 300 * (index + 1));
+      }
+    };
+    
+    if (!redirectSuccess) {
+      setTimeout(() => fallbackAttempt(), 500);
+    }
+    
+  } catch (error) {
+    console.error('Logout failed:', error);
+    // Ultimate fallback
+    setTimeout(() => {
+      window.location.href = '/';
+    }, 1000);
+  }
 }
 
-function enableDebugConsole() {
-    const consoleDiv = document.getElementById('debug-console');
-    if (consoleDiv) {
-        consoleDiv.style.display = consoleDiv.style.display === 'block' ? 'none' : 'block';
-        consoleDiv.scrollTop = consoleDiv.scrollHeight;
-        debugLog('Debug console toggled');
+// ==================== DEBUG CONSOLE ====================
+// New function to handle debug console
+function toggleDebugConsole() {
+  const debugConsole = document.getElementById('debug-console');
+  if (debugConsole) {
+    const isVisible = debugConsole.style.display === 'block';
+    debugConsole.style.display = isVisible ? 'none' : 'block';
+    debugLog(`Debug console ${isVisible ? 'hidden' : 'shown'}`);
+    
+    // Scroll to bottom when shown
+    if (!isVisible) {
+      setTimeout(() => {
+        debugConsole.scrollTop = debugConsole.scrollHeight;
+      }, 100);
     }
+  }
 }
 
 // ==================== UPDATED REFRESH FUNCTION ====================
