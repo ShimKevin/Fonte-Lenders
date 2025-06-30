@@ -518,7 +518,7 @@
     </div>
 
     <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-    <script>
+<script>
     const API_BASE_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:3000' 
         : 'https://fonte-lenders.onrender.com';
@@ -531,6 +531,13 @@
             month: '2-digit',
             year: 'numeric'
         });
+    }
+
+    function calculateDaysRemaining(dueDate) {
+        if (!dueDate) return 0;
+        const now = new Date();
+        const due = new Date(dueDate);
+        return Math.ceil((due - now) / (1000 * 60 * 60 * 24));
     }
 
     const profileContainer = document.getElementById('profile-container');
@@ -561,22 +568,26 @@
     });
 
     function setupSocketConnection() {
+        console.log('Initializing socket connection...');
         socket = io(API_BASE_URL, {
             transports: ['websocket'],
             auth: {
                 token: localStorage.getItem('authToken')
-            }
+            },
+            reconnectionAttempts: 5,
+            timeout: 10000
         });
 
         socket.on('connect', () => {
-            console.log('Socket connected');
+            console.log('Socket connected:', socket.id);
             if (profileData?.user?._id) {
                 socket.emit('joinUserRoom', profileData.user._id);
+                console.log('Joined user room:', profileData.user._id);
             }
         });
 
-        socket.on('disconnect', () => {
-            console.log('Socket disconnected');
+        socket.on('disconnect', (reason) => {
+            console.log('Socket disconnected:', reason);
         });
 
         socket.on('connect_error', (error) => {
@@ -647,7 +658,6 @@
             }
         });
 
-        // Add overdue notification listener
         socket.on('overdueUpdate', (data) => {
             if (data.loanId === profileData?.activeLoan?._id) {
                 showNotification(`Your loan has been updated with new overdue fees`, 'warning');
@@ -658,18 +668,37 @@
 
     async function loadInitialProfile() {
         try {
+            console.log('Attempting to load profile...');
             const response = await fetch(`${API_BASE_URL}/api/user/profile`, {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('authToken')}` }
+                headers: { 
+                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+                    'Content-Type': 'application/json'
+                }
             });
             
-            if (!response.ok) throw new Error('Failed to load profile');
-            profileData = await response.json();
+            console.log('Profile response status:', response.status);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error('Profile error response:', errorData);
+                throw new Error(errorData.message || 'Failed to load profile');
+            }
+            
+            const data = await response.json();
+            console.log('Profile data received:', data);
+            
+            if (!data.success) {
+                throw new Error(data.message || 'Invalid profile data');
+            }
+            
+            profileData = data;
             updateProfileDisplay();
             
             if (socket && profileData?.user?._id) {
                 socket.emit('joinUserRoom', profileData.user._id);
             }
         } catch (error) {
+            console.error('Profile load error:', error);
             throw error;
         }
     }
@@ -683,7 +712,6 @@
             btn.addEventListener('click', submitPayment);
         });
         
-        // Initialize days remaining display
         updateDaysRemaining();
     }
 
@@ -691,12 +719,16 @@
         console.error('Profile Error:', error);
         profileContainer.style.display = 'none';
         errorMessage.style.display = 'block';
-        errorMessage.textContent = error.message.includes('Unauthorized') 
-            ? 'Session expired. Redirecting to login...' 
-            : 'Failed to load profile. Please try again.';
-
-        if (error.message.includes('Unauthorized')) {
+        
+        if (error.message.includes('Failed to fetch')) {
+            errorMessage.textContent = 'Network error. Please check your connection.';
+        } else if (error.message.includes('Unauthorized') || error.message.includes('401')) {
+            errorMessage.textContent = 'Session expired. Redirecting to login...';
             setTimeout(redirectToLogin, 2000);
+        } else if (error.message.includes('JSON')) {
+            errorMessage.textContent = 'Invalid server response. Please try again.';
+        } else {
+            errorMessage.textContent = error.message || 'Failed to load profile. Please try again.';
         }
     }
 
@@ -802,7 +834,7 @@
 
     function generateLoanInfo(user, activeLoan, hasActiveLoan) {
         const dueDate = activeLoan?.dueDate ? new Date(activeLoan.dueDate) : null;
-        const daysRemaining = dueDate ? Math.ceil((dueDate - Date.now()) / (1000 * 60 * 60 * 24)) : 0;
+        const daysRemaining = dueDate ? calculateDaysRemaining(dueDate) : 0;
         const loanStatus = activeLoan?.status || 'none';
 
         return `
@@ -840,81 +872,90 @@
     }
 
     function generateActiveLoan(loan, daysRemaining) {
+        const isOverdue = daysRemaining < 0;
         const interestRate = loan.interestRate || 15;
         const interestAmount = (loan.amount * interestRate) / 100;
         const totalAmount = loan.amount + interestAmount + (loan.overdueFees || 0);
         const amountPaid = loan.amountPaid || 0;
         const amountDue = totalAmount - amountPaid;
         
-        return `
-            <div class="active-loan-details">
-                <h4>Active Loan Details</h4>
-                
-                ${loan.status === 'defaulted' ? `
-                    <div class="overdue-alert">
-                        <h4><i class="fas fa-exclamation-triangle"></i> Loan Overdue</h4>
-                        <div class="overdue-details">
-                            <div class="detail">
-                                <span>Days Overdue:</span>
-                                <span>${loan.overdueDays || 0}</span>
+        if (loan.status !== 'completed') {
+            return `
+                <div class="active-loan-details">
+                    <h4>Active Loan Details</h4>
+                    
+                    ${isOverdue ? `
+                        <div class="overdue-alert">
+                            <h4><i class="fas fa-exclamation-triangle"></i> Loan Overdue</h4>
+                            <div class="overdue-details">
+                                <div class="detail">
+                                    <span>Days Overdue:</span>
+                                    <span>${Math.abs(daysRemaining)}</span>
+                                </div>
+                                <div class="detail">
+                                    <span>Daily Penalty (6%):</span>
+                                    <span>KES ${(loan.amount * 0.06).toLocaleString()}/day</span>
+                                </div>
+                                <div class="detail">
+                                    <span>Total Penalty:</span>
+                                    <span>KES ${loan.overdueFees?.toLocaleString() || '0'}</span>
+                                </div>
+                                <div class="detail">
+                                    <span>Updated Total Due:</span>
+                                    <span>KES ${totalAmount.toLocaleString()}</span>
+                                </div>
                             </div>
-                            <div class="detail">
-                                <span>Daily Penalty (6%):</span>
-                                <span>KES ${(loan.amount * 0.06).toLocaleString()}/day</span>
+                        </div>
+                    ` : ''}
+                    
+                    <div class="loan-metrics">
+                        <div class="metric">
+                            <div class="metric-value">KES ${loan.amount.toLocaleString()}</div>
+                            <div class="metric-label">Principal</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${interestRate}%</div>
+                            <div class="metric-label">Interest Rate</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">KES ${totalAmount.toLocaleString()}</div>
+                            <div class="metric-label">Total Due</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">KES ${amountPaid.toLocaleString()}</div>
+                            <div class="metric-label">Amount Paid</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">KES ${amountDue.toLocaleString()}</div>
+                            <div class="metric-label">Amount Due</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">
+                                <span class="days-remaining ${isOverdue ? 'text-danger' : ''}" 
+                                      data-due-date="${loan.dueDate}">
+                                    ${isOverdue ? Math.abs(daysRemaining) : daysRemaining}
+                                </span>
                             </div>
-                            <div class="detail">
-                                <span>Total Penalty:</span>
-                                <span>KES ${loan.overdueFees?.toLocaleString() || '0'}</span>
-                            </div>
-                            <div class="detail">
-                                <span>Updated Total Due:</span>
-                                <span>KES ${totalAmount.toLocaleString()}</span>
+                            <div class="metric-label">
+                                ${isOverdue ? 'Days Overdue' : 'Days Remaining'}
                             </div>
                         </div>
                     </div>
-                ` : ''}
-                
-                <div class="loan-metrics">
-                    <div class="metric">
-                        <div class="metric-value">KES ${loan.amount.toLocaleString()}</div>
-                        <div class="metric-label">Principal</div>
+                    
+                    <div class="profile-field">
+                        <strong>Due Date:</strong>
+                        <span>${formatDate(loan.dueDate)}</span>
                     </div>
-                    <div class="metric">
-                        <div class="metric-value">${interestRate}%</div>
-                        <div class="metric-label">Interest Rate</div>
+                    <div class="profile-field">
+                        <strong>Disbursement Date:</strong>
+                        <span>${formatDate(loan.approvedAt)}</span>
                     </div>
-                    <div class="metric">
-                        <div class="metric-value">KES ${totalAmount.toLocaleString()}</div>
-                        <div class="metric-label">Total Due</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value">KES ${amountPaid.toLocaleString()}</div>
-                        <div class="metric-label">Amount Paid</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value">KES ${amountDue.toLocaleString()}</div>
-                        <div class="metric-label">Amount Due</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value">
-                            <span class="days-remaining" data-due-date="${loan.dueDate}">${Math.max(daysRemaining, 0)}</span>
-                        </div>
-                        <div class="metric-label">Days Remaining</div>
-                    </div>
+                    
+                    ${loan.repaymentSchedule?.length > 0 ? generateRepaymentSchedule(loan) : ''}
                 </div>
-                
-                <div class="profile-field">
-                    <strong>Due Date:</strong>
-                    <span>${formatDate(loan.dueDate)}</span>
-                </div>
-                <div class="profile-field">
-                    <strong>Disbursement Date:</strong>
-                    <span>${formatDate(loan.approvedAt)}</span>
-                </div>
-                
-                ${loan.repaymentSchedule?.length > 0 ? generateRepaymentSchedule(loan) : ''}
-            </div>
-        `;
+            `;
+        }
+        return '';
     }
 
     function generateRepaymentSchedule(loan) {
@@ -1019,12 +1060,11 @@
         dueDateElements.forEach(element => {
             const dueDate = new Date(element.dataset.dueDate);
             const now = new Date();
-            const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+            const daysRemaining = calculateDaysRemaining(dueDate);
             const displayDays = Math.max(daysRemaining, 0);
             
             element.textContent = displayDays;
             
-            // Add warning for approaching due date
             if (daysRemaining <= 3) {
                 element.classList.add('due-soon');
             } else {
@@ -1063,21 +1103,17 @@
                 throw new Error('Please enter a valid payment amount');
             }
             
-            // Get the active loan
             const activeLoan = profileData.activeLoan;
             if (!activeLoan) {
                 throw new Error('No active loan found');
             }
 
-            // Calculate remaining balance correctly (including interest and overdue fees)
             const totalRemaining = (activeLoan.amount + (activeLoan.amount * (activeLoan.interestRate || 15) / 100) + (activeLoan.overdueFees || 0)) - (activeLoan.amountPaid || 0);
 
-            // Validate against the ACTUAL loan balance
             if (paymentAmount > totalRemaining) {
                 throw new Error(`Payment exceeds loan balance. Maximum: KES ${totalRemaining.toLocaleString()}`);
             }
 
-            // Correct payload structure
             const payload = {
                 reference: paymentReference,
                 amount: paymentAmount
@@ -1101,11 +1137,9 @@
 
             showNotification('Payment submitted for admin approval!', 'success');
             
-            // Clear form
             document.getElementById('paymentReference').value = '';
             document.getElementById('paymentAmount').value = '';
             
-            // Refresh profile after a short delay
             setTimeout(() => {
                 refreshProfileData().then(() => {
                     paymentInProgress = false;
@@ -1172,7 +1206,7 @@
 
     // Initialize days remaining and set daily update
     updateDaysRemaining();
-    setInterval(updateDaysRemaining, 24 * 60 * 60 * 1000); // Update daily
+    setInterval(updateDaysRemaining, 24 * 60 * 60 * 1000);
 
     window.addEventListener('beforeunload', () => {
         if (socket) {

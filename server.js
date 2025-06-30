@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { body, validationResult } = require('express-validator');
+const dateUtils = require('./shared/dateUtils.js');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -58,8 +59,10 @@ io.on('connection', (socket) => {
         if (daysOverdue > (loan.overdueDays || 0)) {
           socket.emit('overdueUpdate', {
             loanId: loan._id,
+            userId: loan.userId,
             overdueDays: daysOverdue,
-            overdueFees: loan.principal * 0.06 * daysOverdue
+            overdueFees: loan.principal * 0.06 * daysOverdue,
+            totalAmount: loan.totalAmount
           });
         }
       }
@@ -146,7 +149,66 @@ io.on('connection', (socket) => {
       reason: data.reason
     });
   });
+
+  // ==================== OVERDUE UPDATE HANDLER ====================
+  socket.on('overdueUpdate', (data) => {
+    console.log(`⚠️ Overdue update for loan ${data.loanId} (User: ${data.userId}): ${data.overdueDays} days overdue`);
+    // Update both admin and customer views
+    io.to(`user_${data.userId}`).emit('overdueUpdate', {
+      loanId: data.loanId,
+      overdueDays: data.overdueDays,
+      overdueFees: data.overdueFees,
+      totalAmount: data.totalAmount
+    });
+    io.to('adminRoom').emit('overdueUpdate', {
+      loanId: data.loanId,
+      userId: data.userId,
+      overdueDays: data.overdueDays,
+      overdueFees: data.overdueFees,
+      totalAmount: data.totalAmount
+    });
+  });
 });
+
+// ==================== LOAN STATUS UPDATE JOB INTEGRATION ====================
+async function updateOverdueLoansAndNotify() {
+  try {
+    const now = new Date();
+    const updatedLoans = await LoanApplication.find({
+      status: 'active',
+      dueDate: { $lt: now }
+    });
+
+    updatedLoans.forEach(loan => {
+      const daysOverdue = Math.floor((now - loan.dueDate) / (1000 * 60 * 60 * 24));
+      const overdueFees = loan.principal * 0.06 * daysOverdue;
+      const totalAmount = (loan.principal + (loan.interestAmount || 0) + overdueFees);
+
+      // Emit to both user and admin rooms
+      io.to(`user_${loan.userId}`).emit('overdueUpdate', {
+        loanId: loan._id,
+        overdueDays: daysOverdue,
+        overdueFees: overdueFees,
+        totalAmount: totalAmount
+      });
+
+      io.to('adminRoom').emit('overdueUpdate', {
+        loanId: loan._id,
+        userId: loan.userId,
+        overdueDays: daysOverdue,
+        overdueFees: overdueFees,
+        totalAmount: totalAmount
+      });
+    });
+
+    console.log(`🔔 Notified ${updatedLoans.length} overdue loans`);
+  } catch (error) {
+    console.error('❌ Error in overdue loan notification:', error);
+  }
+}
+
+// Run this periodically (e.g., in your loan status update job)
+// setInterval(updateOverdueLoansAndNotify, 24 * 60 * 60 * 1000); // Daily
 
 // ==================== MONGODB CONNECTION ====================
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://kevinshimanjala:FonteLenders%40254@cluster0.g2bzscn.mongodb.net/fonte_lenders?retryWrites=true&w=majority&appName=Cluster0";
@@ -373,89 +435,81 @@ loanApplicationSchema.statics.updateLoanStatuses = async function() {
   const now = new Date();
   
   try {
-    // 1. Update overdue loans with daily penalty
-    const overdueLoans = await this.find({
-      status: 'defaulted',
-      dueDate: { $lt: now }
-    });
-
-    for (const loan of overdueLoans) {
-      try {
-        const daysOverdue = Math.floor((now - loan.dueDate) / (1000 * 60 * 60 * 24));
-        const newOverdueDays = daysOverdue;
-        
-        const principal = loan.principal || 0;
-        const interestAmount = loan.interestAmount || 0;
-        const calculatedFees = principal * 0.06 * newOverdueDays;
-        const newOverdueFees = isNaN(calculatedFees) ? 0 : calculatedFees;
-        const newTotalAmount = principal + interestAmount + newOverdueFees;
-
-        await this.updateOne(
-          { _id: loan._id },
-          { 
-            $set: { 
-              overdueDays: newOverdueDays,
-              overdueFees: newOverdueFees,
-              lastOverdueCalculation: now,
-              totalAmount: newTotalAmount
-            }
-          }
-        );
-
-        if (loan.userId) {
-          io.to(`user_${loan.userId}`).emit('overdueUpdate', {
-            loanId: loan._id,
-            overdueDays: newOverdueDays,
-            overdueFees: newOverdueFees,
-            totalAmount: newTotalAmount
-          });
-        }
-      } catch (error) {
-        console.error(`Error updating overdue loan ${loan._id}:`, error);
-      }
-    }
-
-    // 2. Update overdue loans that aren't yet marked as default (using aggregation pipeline)
+    // 1. Update overdue loans but keep status as "active" (from server.js version)
     await this.updateMany(
       {
         status: 'active',
-        dueDate: { $lt: now },
-        markedDefault: { $ne: true }
+        dueDate: { $lt: now }
       },
-      [
-        {
-          $set: {
-            status: 'defaulted',
-            actualDueDate: now,
-            markedDefault: true,
-            overdueDays: 1,
-            overdueFees: {
-              $cond: [
-                { $gt: ['$principal', 0] },
-                { $multiply: ['$principal', 0.06] },
-                0
-              ]
-            },
-            totalAmount: {
-              $cond: [
-                { $gt: ['$principal', 0] },
-                { $add: ['$totalAmount', { $multiply: ['$principal', 0.06] }] },
-                '$totalAmount'
-              ]
-            }
+      [{
+        $set: {
+          overdueDays: { 
+            $multiply: [
+              { $subtract: [now, '$dueDate'] },
+              1 / (1000 * 60 * 60 * 24) // Convert ms to days
+            ]
+          },
+          overdueFees: { 
+            $multiply: [
+              '$principal',
+              0.06,
+              {
+                $ceil: {
+                  $divide: [
+                    { $subtract: [now, '$dueDate'] },
+                    1000 * 60 * 60 * 24 // Convert ms to days
+                  ]
+                }
+              }
+            ]
+          },
+          lastOverdueCalculation: now
+        }
+      }, {
+        $set: {
+          totalAmount: {
+            $add: [
+              '$principal',
+              '$interestAmount',
+              '$overdueFees'
+            ]
           }
         }
-      ]
+      }]
     );
 
-    // 3. Complete fully paid loans
+    // 2. Notify users of overdue updates (from admin.js version)
+    const overdueLoans = await this.find({
+      status: 'active',
+      dueDate: { $lt: now },
+      lastNotificationSent: { $ne: now }
+    }).lean();
+
+    for (const loan of overdueLoans) {
+      if (loan.userId) {
+        io.to(`user_${loan.userId}`).emit('overdueUpdate', {
+          loanId: loan._id,
+          overdueDays: Math.ceil((now - loan.dueDate) / (1000 * 60 * 60 * 24)),
+          overdueFees: loan.overdueFees,
+          totalAmount: loan.totalAmount
+        });
+      }
+      await this.updateOne(
+        { _id: loan._id },
+        { $set: { lastNotificationSent: now } }
+      );
+    }
+
+    // 3. Mark loans as completed if fully paid (combined approach)
     await this.updateMany({
       status: 'active',
       $expr: { $gte: ['$amountPaid', '$totalAmount'] }
     }, {
       $set: { 
         status: 'completed',
-        lastStatusUpdate: now
+        lastStatusUpdate: now,
+        overdueDays: 0,
+        overdueFees: 0
       }
     });
 
@@ -584,14 +638,32 @@ app.get('/admin.html', (req, res) => {
 
 // ==================== MIDDLEWARE ====================
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3000/admin',
-    'https://fonte-lenders.onrender.com'
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc)
+    if (!origin) return callback(null, true);
+    
+    const allowedDomains = [
+      'http://localhost:3000',
+      'http://localhost:3000/admin',
+      'https://fonte-lenders.com',
+      'https://fonte-lenders.onrender.com'
+    ];
+
+    // Check if the origin is either an exact match or a subdomain
+    if (
+      allowedDomains.includes(origin) ||
+      origin.endsWith('.fonte-lenders.com')
+    ) {
+      return callback(null, true);
+    }
+
+    console.warn(`CORS blocked for origin: ${origin}`);
+    callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-refresh-token'],
+  exposedHeaders: ['Content-Length', 'Authorization', 'X-Request-ID']
 }));
 
 // Custom response formatter
@@ -629,7 +701,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Loan validation middleware (added new)
+// Loan validation middleware
 app.use('/api/admin/loans', [
   body('amount').optional().isFloat({ min: 0 }).withMessage('Amount must be a positive number'),
   body('overdueFees').optional().isFloat({ min: 0 }).withMessage('Fees must be a positive number'),
@@ -1191,38 +1263,66 @@ app.use('/api/admin/loan-applications', async (req, res, next) => {
 });
 
 app.get('/api/admin/loan-applications', authenticateAdmin, async (req, res) => {
-  try {
-    const { status, page = 1, limit = 20 } = req.query;
-    
-    const query = {};
-    if (status) query.status = status;
-    
-    const applications = await LoanApplication.find(query)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit))
-      .lean();
+    try {
+        const { status, page = 1, limit = 20, rejected } = req.query;
+        
+        // Build the query object
+        const query = {};
+        
+        // Handle status filter
+        if (status && typeof status === 'string') {
+            if (status.includes(',')) {
+                // When multiple statuses are requested (like active,defaulted)
+                const statuses = status.split(',');
+                query.status = { $in: statuses };
+                
+                // Automatically exclude rejected unless explicitly requested
+                if (!statuses.includes('rejected') && rejected !== 'true') {
+                    query.status.$ne = 'rejected';
+                }
+            } else {
+                // Single status requested
+                query.status = status;
+                
+                // For active/defaulted views, automatically exclude rejected
+                if ((status === 'active' || status === 'defaulted') && rejected !== 'true') {
+                    query.status = { $eq: status, $ne: 'rejected' };
+                }
+            }
+        } else if (rejected !== 'true') {
+            // Default case: exclude rejected when no specific status requested
+            // and not explicitly asking for rejected loans
+            query.status = { $ne: 'rejected' };
+        }
+        
+        // Fetch applications with pagination
+        const applications = await LoanApplication.find(query)
+            .sort({ createdAt: -1 })
+            .skip((page - 1) * limit)
+            .limit(parseInt(limit))
+            .lean();
 
-    const count = await LoanApplication.countDocuments(query);
+        const count = await LoanApplication.countDocuments(query);
 
-    res.jsonResponse({
-      success: true,
-      applications,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: count,
-        pages: Math.ceil(count / limit)
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching loan applications:', error);
-    res.jsonResponse({
-      success: false,
-      message: 'Failed to fetch loan applications',
-      code: 'LOAN_APPLICATIONS_FETCH_ERROR'
-    }, 500);
-  }
+        res.json({
+            success: true,
+            applications,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: count,
+                pages: Math.ceil(count / limit)
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching loan applications:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch loan applications',
+            code: 'LOAN_APPLICATIONS_FETCH_ERROR',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
 });
 
 app.get('/api/admin/loan-applications/:id', authenticateAdmin, async (req, res) => {
@@ -1590,6 +1690,27 @@ app.get('/api/admin/profile', authenticateAdmin, async (req, res) => {
       message: 'Failed to fetch admin data' 
     });
   }
+});
+
+app.get('/api/verify-days-calculation/:loanId', authenticateAdmin, async (req, res) => {
+    try {
+        const loan = await LoanApplication.findById(req.params.id);
+        if (!loan) return res.status(404).json({ error: 'Loan not found' });
+
+        // STANDARDIZED CALCULATION
+        const serverCalculation = calculateDaysRemaining(loan.dueDate);
+        
+        res.json({
+            success: true,
+            loanId: loan._id,
+            dueDate: loan.dueDate,
+            serverCalculation,
+            serverTime: new Date(),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // ==================== PAYMENT SUBMISSION ROUTE ====================
@@ -2250,18 +2371,23 @@ app.post('/api/login', async (req, res) => {
 // ==================== UPDATED PROFILE ENDPOINT ====================
 app.get('/api/user/profile', authenticate, async (req, res) => {
   try {
+    console.log('Fetching profile for user:', req.user._id);
+    
     const user = await Customer.findById(req.user._id)
+      .select('-password -__v')
       .populate({
         path: 'activeLoan',
-        match: { status: 'active' },
-        select: 'amount amountPaid dueDate repaymentSchedule status totalAmount principal interestRate overdueDays overdueFees lastOverdueCalculation'
+        match: { $or: [{ status: 'active' }, { status: 'defaulted' }] },
+        select: 'amount amountPaid dueDate repaymentSchedule status totalAmount principal interestRate overdueDays overdueFees lastOverdueCalculation purpose'
       })
       .lean();
 
     if (!user) {
+      console.log('User not found:', req.user._id);
       return res.status(404).json({ 
         success: false, 
-        message: 'User not found'
+        message: 'User not found',
+        code: 'USER_NOT_FOUND'
       });
     }
 
@@ -2277,7 +2403,6 @@ app.get('/api/user/profile', authenticate, async (req, res) => {
         user.activeLoan.overdueFees = overdueFees;
         user.activeLoan.totalAmount = user.activeLoan.principal + (user.activeLoan.interestAmount || 0) + overdueFees;
         
-        // Update in database
         await LoanApplication.updateOne(
           { _id: user.activeLoan._id },
           { 
@@ -2290,52 +2415,82 @@ app.get('/api/user/profile', authenticate, async (req, res) => {
       }
     }
 
-    const availableLimit = user.maxLoanLimit - user.currentLoanBalance;
-    const activeLoan = user.activeLoan;
+    // Get payment history and pending payments
+    const [paymentHistory, pendingPayments] = await Promise.all([
+      Payment.find({ userId: user._id })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean(),
+      Payment.find({
+        userId: user._id,
+        status: 'pending'
+      }).lean()
+    ]);
 
+    // Calculate available limit
+    const availableLimit = Math.max(0, (user.maxLoanLimit || 0) - (user.currentLoanBalance || 0));
+
+    // Prepare loan details if active loan exists
     let loanDetails = null;
-    if (activeLoan) {
+    if (user.activeLoan) {
       const now = new Date();
-      const dueDate = new Date(activeLoan.dueDate);
-      const daysRemaining = Math.ceil((dueDate - now) / 86400000);
-      const totalPaid = activeLoan.amountPaid;
-      const progress = (totalPaid / activeLoan.totalAmount) * 100;
+      const dueDate = new Date(user.activeLoan.dueDate);
+      const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+      const totalPaid = user.activeLoan.amountPaid || 0;
+      const progress = user.activeLoan.totalAmount > 0 
+        ? (totalPaid / user.activeLoan.totalAmount) * 100 
+        : 0;
       
       loanDetails = {
-        amount: activeLoan.amount,
-        principal: activeLoan.principal,
-        interestRate: activeLoan.interestRate,
-        interestAmount: activeLoan.interestAmount,
-        totalAmount: activeLoan.totalAmount,
+        amount: user.activeLoan.amount,
+        principal: user.activeLoan.principal,
+        interestRate: user.activeLoan.interestRate,
+        interestAmount: user.activeLoan.interestAmount,
+        totalAmount: user.activeLoan.totalAmount,
         amountPaid: totalPaid,
-        amountRemaining: activeLoan.totalAmount - totalPaid,
+        amountRemaining: user.activeLoan.totalAmount - totalPaid,
         progress: Math.round(progress * 100) / 100,
-        purpose: activeLoan.purpose,
-        status: activeLoan.status,
-        dueDate: dueDate.toISOString(),
+        purpose: user.activeLoan.purpose,
+        status: user.activeLoan.status,
+        dueDate: user.activeLoan.dueDate,
         daysRemaining: Math.max(daysRemaining, 0),
-        overdueDays: activeLoan.overdueDays,
-        overdueFees: activeLoan.overdueFees,
-        lastPayment: activeLoan.repaymentSchedule.slice(-1)[0]
+        overdueDays: user.activeLoan.overdueDays || 0,
+        overdueFees: user.activeLoan.overdueFees || 0,
+        lastPayment: user.activeLoan.repaymentSchedule?.slice(-1)[0] || null
       };
     }
 
-    res.json({
+    // Standardized response format
+    const response = {
       success: true,
       user: {
         ...user,
+        _id: user._id.toString(),
+        maxLoanLimit: user.maxLoanLimit || 0,
+        currentLoanBalance: user.currentLoanBalance || 0,
         availableLimit,
-        password: undefined,
-        __v: undefined
+        verificationStatus: user.verificationStatus || 'pending'
       },
-      activeLoan: loanDetails
+      activeLoan: loanDetails,
+      paymentHistory: paymentHistory || [],
+      pendingPayments: pendingPayments || []
+    };
+
+    console.log('Profile response prepared for:', user._id, {
+      hasActiveLoan: !!user.activeLoan,
+      paymentCount: paymentHistory.length,
+      pendingPayments: pendingPayments.length
     });
+
+    res.json(response);
 
   } catch (error) {
     console.error('Profile fetch error:', error);
     res.status(500).json({ 
       success: false,
-      message: 'Failed to load profile'
+      message: 'Failed to load profile',
+      code: 'PROFILE_FETCH_ERROR',
+      systemError: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

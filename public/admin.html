@@ -505,7 +505,6 @@
             margin: 20px auto;
         }
 
-
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -517,14 +516,29 @@
             bottom: 0;
             left: 0;
             width: 100%;
-            height: 150px;
-            background: rgba(0,0,0,0.8);
+            height: 200px;
+            background: rgba(0, 0, 0, 0.9);
             color: #0f0;
-            font-family: monospace;
-            padding: 10px;
+            font-family: 'Courier New', monospace;
+            padding: 15px;
             overflow-y: auto;
-            z-index: 2000;
+            z-index: 10000;
+            border-top: 1px solid #0f0;
             display: none;
+            box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        #debug-console div {
+            margin: 5px 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        #debug-console div::before {
+            content: '> ';
+            color: #4CAF50;
         }
 
         .operation-warning {
@@ -717,6 +731,7 @@
         .status-overdue { color: var(--red); }
         .status-completed { color: var(--blue); }
 
+        /* Add to admin.css */
         .loan-details {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -751,13 +766,6 @@
 
         .status-pending { color: #FFA500; }
         .status-approved { color: #4CAF50; }
-
-        .no-payments, .error-message {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            font-style: italic;
-        }
         
         /* NEW: Active loans grid styles */
         .loans-grid {
@@ -827,39 +835,46 @@
             margin-bottom: 20px;
         }
 
-        /* NEW: Overdue loan styles */
-        .overdue-details {
-          font-size: 0.8em;
-          color: #ff6b6b;
-          margin-top: 5px;
+        /* NEW: Action buttons container */
+        .admin-actions-container {
+            text-align: center;
+            margin: 30px auto;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
         }
 
-        .overdue-details span {
-          display: inline-block;
-          margin-right: 10px;
+        .danger-btn {
+            background: linear-gradient(135deg, var(--red), #c62828);
+            color: white;
         }
 
-        .status-overdue {
-          color: #ff6b6b !important;
-          font-weight: bold;
+        .danger-btn:hover {
+            box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4);
         }
 
-        .overdue-summary {
-          background: rgba(255, 107, 107, 0.1);
-          padding: 15px;
-          border-radius: 4px;
-          margin: 15px 0;
-          border-left: 4px solid #ff6b6b;
+        .debug-btn {
+            background: linear-gradient(135deg, #333, #222);
+            color: white;
         }
 
-        .action-btn .btn-spinner {
-            display: none;
+        .debug-btn:hover {
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.4);
         }
-        .action-btn .btn-spinner.hidden {
-            display: none;
-        }
-        .action-btn .btn-text.hidden {
-            display: none;
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .admin-actions-container {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            #debug-console {
+                height: 150px;
+                padding: 10px;
+                font-size: 12px;
+            }
         }
     </style>
 </head>
@@ -1047,29 +1062,31 @@
                 </table>
             </div>
         </section>
-
+        
         <!-- Pending Payments Section -->
-         <div id="pending-payments-section" class="hidden">
+        <div id="pending-payments-section" class="hidden" style="margin-top: 30px;">
             <h3 id="pending-payments-section-title">Pending Payments</h3>
-            <div class="table-responsive">
+            <div id="pending-payments-table-container">
                 <table class="loan-table">
                     <thead>
                         <tr>
                             <th>Customer</th>
-                            <th>Loan Amount</th>
-                            <th>Payment Due</th>
-                            <th>Status</th>
+                            <th>Amount</th>
+                            <th>Reference</th>
+                            <th>Date Submitted</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="pending-payments-table-body">
-                        <!-- Pending payments will be loaded here -->
+                        <!-- Payments will be loaded here -->
                     </tbody>
-                    </table>
+                </table>
             </div>
-            <button id="hide-loans-btn" class="luxury-btn">Back to Dashboard</button>
-         </div>
-    
+            <button class="luxury-btn" id="hide-payments-btn" style="margin-top: 20px;">
+                BACK TO DASHBOARD
+            </button>
+        </div>
+        
         <!-- Customer Profile Section -->
         <div id="customer-profile-section" class="customer-profile-section hidden">
             <!-- Customer profiles will be loaded here -->
@@ -1119,10 +1136,15 @@
             </div>
         </div>
         
-        <div style="text-align: center; margin-top: 30px;">
-            <button class="luxury-btn" id="logout-btn" style="background: linear-gradient(135deg, var(--red), #c62828) !important; padding: 15px 30px;">LOGOUT</button>
-            <button class="luxury-btn" id="debug-toggle-btn" style="background: #333; margin-left: 10px;">
-                SHOW DEBUG
+        <div class="admin-actions-container">
+            <!-- Logout Button -->
+            <button class="luxury-btn danger-btn" id="logout-btn">
+                <i class="fas fa-sign-out-alt"></i> LOGOUT
+            </button>
+            
+            <!-- Debug Toggle Button -->
+            <button class="luxury-btn debug-btn" id="debug-toggle-btn">
+                <i class="fas fa-bug"></i> <span class="debug-btn-text">SHOW DEBUG</span>
             </button>
         </div>
     </div>

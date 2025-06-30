@@ -3,6 +3,9 @@ const API_BASE_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3000'
   : 'https://fonte-lenders.onrender.com';
 
+// State management variable - NEWLY ADDED
+let currentView = 'dashboard';
+
 // Date formatting utility         
 function formatDate(dateString) {
   if (!dateString) return 'N/A';
@@ -858,17 +861,22 @@ function renderCustomerLoans(loans) {
     </table>`;
 }
 
+// ==================== IMPROVED BACK TO DASHBOARD FUNCTION ====================
 function backToDashboard() {
-    // Hide all sections
-    document.getElementById('loans-section').classList.add('hidden');
-    document.getElementById('pending-payments-section').classList.add('hidden');
-    document.getElementById('customer-profile-section').classList.add('hidden');
+    // Update state - NEWLY ADDED
+    currentView = 'dashboard';
     
-    // Clear current customer
-    currentCustomerId = null;
+    // Hide all sections
+    document.getElementById('loans-section')?.classList.add('hidden');
+    document.getElementById('pending-payments-section')?.classList.add('hidden');
+    document.getElementById('customer-profile-section')?.classList.add('hidden');
     
     // Show main dashboard
-    document.getElementById('admin-grid').classList.remove('hidden');
+    document.getElementById('admin-grid')?.classList.remove('hidden');
+    
+    // Reset current views
+    currentCustomerId = null;
+    currentLoanId = null;
 }
 
 // ==================== BULK LIMIT UPDATE ====================
@@ -962,49 +970,64 @@ function readCSVFile(file) {
 }
 
 // ==================== LOAN MANAGEMENT ====================
-async function showLoans(status, page = 1) {
+async function showLoans(status = 'pending', page = 1) {
+    // Update state - NEWLY ADDED
+    currentView = 'loans';
+    
     try {
         showLoading('loans');
         debugLog(`Loading ${status} loans, page ${page}`);
         
-        let queryParams = `status=${status}&page=${page}&limit=20`;
+        // Modified status handling to explicitly exclude rejected loans for active/defaulted view
+        const statusParam = typeof status === 'string' ? 
+            (status === 'active' ? 'active,defaulted' : status) : 
+            'pending';
         
-        // Special handling for active loans to ensure they're not filtered prematurely
-        if (status === 'active') {
-            queryParams += '&activeOnly=true';
-        }
+        // Add rejected=false parameter for active/defaulted loans
+        const additionalParams = status === 'active' ? '&rejected=false' : '';
         
         const response = await apiClient(
-            `/api/admin/loan-applications?${queryParams}`
+            `/api/admin/loan-applications?status=${encodeURIComponent(statusParam)}${additionalParams}&page=${page}&limit=20`
         );
         
-        // For active loans, display in card layout
+        // Filter out any rejected loans that might have slipped through (client-side safeguard)
+        const filteredApplications = status === 'active' 
+            ? (response.applications || []).filter(app => app.status !== 'rejected')
+            : response.applications || [];
+        
         if (status === 'active') {
-            displayActiveLoans(response.applications || []);
+            displayActiveLoans(filteredApplications);
         } else {
-            displayLoans(response.applications || [], status, response.totalPages, page);
+            displayLoans(filteredApplications, status, response.totalPages, page);
         }
     } catch (error) {
         debugLog(`Failed to load ${status} loans: ${error.message}`);
         
-        // Show error in UI
+        // Enhanced error display with retry button
+        const errorHtml = `
+            <div class="error-container">
+                <i class="fas fa-exclamation-triangle"></i>
+                <div>
+                    <p>Failed to load ${status} loans</p>
+                    <p class="error-detail">${error.message}</p>
+                    <button onclick="showLoans('${status}', ${page})" class="retry-btn">
+                        <i class="fas fa-sync-alt"></i> Try Again
+                    </button>
+                </div>
+            </div>
+        `;
+        
         const gridContainer = document.getElementById('loans-grid-container');
         const tableContainer = document.getElementById('loans-table-container');
         
-        if (gridContainer) {
-            gridContainer.innerHTML = `<p class="error">Error loading loans: ${error.message}</p>`;
-        }
+        if (gridContainer) gridContainer.innerHTML = errorHtml;
+        if (tableContainer) tableContainer.innerHTML = errorHtml;
         
-        if (tableContainer) {
-            tableContainer.innerHTML = `<p class="error">Error loading loans: ${error.message}</p>`;
-        }
-        
-        showError(`Failed to load ${status} loans: ${error.message}`, 'loans');
+        showNotification(`Failed to load ${status} loans`, 'error');
     } finally {
         hideLoading('loans');
     }
 }
-
 // Display active loans in card layout
 function displayActiveLoans(loans) {
     // Hide table container, show grid container
@@ -1032,15 +1055,17 @@ function displayActiveLoans(loans) {
 }
 
 function createLoanCard(loan) {
-    const dueDate = new Date(loan.dueDate);
-    const now = new Date();
-    const daysLeft = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+    if (!loan?.dueDate) return ''; // Null check
+    
+    // STANDARDIZED CALCULATION
+    const daysRemaining = calculateDaysRemaining(loan.dueDate);
+    const isOverdue = daysRemaining < 0;
     
     // Calculate balance
     const balance = (loan.totalAmount || 0) - (loan.amountPaid || 0);
     
     return `
-        <div class="loan-card">
+        <div class="loan-card" data-loan-id="${loan._id}">
             <div class="loan-header">
                 <h4>${loan.fullName || 'Unknown'}</h4>
                 <span class="loan-id">#${loan.loanId?.substring(0, 8) || loan._id.substring(0,8)}</span>
@@ -1063,15 +1088,18 @@ function createLoanCard(loan) {
                     <span>KES ${balance.toLocaleString()}</span>
                 </div>
                 <div class="detail">
-                    <span>Days Left:</span>
-                    <span class="days-remaining ${daysLeft < 7 ? 'text-warning' : ''}">
-                        ${daysLeft}
+                    <span>Status:</span>
+                    <span class="${isOverdue ? 'text-danger' : daysRemaining < 7 ? 'text-warning' : ''}">
+                        ${isOverdue ? 
+                            `${Math.abs(daysRemaining)} days overdue` : 
+                            `${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining`}
                     </span>
                 </div>
             </div>
             <button class="action-btn" onclick="showLoanDetails('${loan._id}')">
                 View Details
             </button>
+            ${isOverdue ? '<div class="overdue-badge">OVERDUE</div>' : ''}
         </div>
     `;
 }
@@ -1489,6 +1517,9 @@ async function processLoan(loanId, action) {
  * @param {number} page - Current page number
  */
 async function showPendingPayments(page = 1) {
+    // Update state - NEWLY ADDED
+    currentView = 'payments';
+    
     try {
         debugLog('Showing pending payments...');
         
@@ -2226,7 +2257,25 @@ function showLongOperationWarning() {
     return warning;
 }
 
-// ==================== EVENT HANDLERS ====================
+// ==================== IMPROVED BACK TO DASHBOARD FUNCTION ====================
+function backToDashboard() {
+    // Update state - NEWLY ADDED
+    currentView = 'dashboard';
+    
+    // Hide all sections
+    document.getElementById('loans-section')?.classList.add('hidden');
+    document.getElementById('pending-payments-section')?.classList.add('hidden');
+    document.getElementById('customer-profile-section')?.classList.add('hidden');
+    
+    // Show main dashboard
+    document.getElementById('admin-grid')?.classList.remove('hidden');
+    
+    // Reset current views
+    currentCustomerId = null;
+    currentLoanId = null;
+}
+
+// ==================== UPDATED EVENT LISTENERS ====================
 function setupEventListeners() {
     debugLog('Setting up event listeners');
     
@@ -2292,10 +2341,15 @@ function setupEventListeners() {
     // Report generation button
     document.getElementById("generateReportBtn")?.addEventListener("click", generateReport);
     
-    // Loan navigation buttons
-    document.querySelectorAll('.admin-card .luxury-btn[data-loan-type]').forEach(btn => {
-        btn.addEventListener('click', () => {
+    // Loan navigation buttons - UPDATED WITH CLONE NODE TO PREVENT DUPLICATES
+    document.querySelectorAll('.luxury-btn[data-loan-type]').forEach(btn => {
+        btn.replaceWith(btn.cloneNode(true));
+    });
+    document.querySelectorAll('.luxury-btn[data-loan-type]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
             const loanType = btn.getAttribute('data-loan-type');
+            currentView = 'loans'; // NEWLY ADDED
             showLoans(loanType);
         });
     });
@@ -2303,16 +2357,18 @@ function setupEventListeners() {
     // Pending payments button (with enhanced verification)
     document.getElementById('pending-payments-btn')?.addEventListener('click', () => {
         if (verifyPaymentElements()) {
+            currentView = 'payments'; // NEWLY ADDED
             showPendingPayments();
         } else {
             showError('Payment system components not loaded');
         }
     });
     
-    // Back buttons
-    document.getElementById('hide-loans-btn')?.addEventListener('click', () => {
-    debugLog('Hide Loans button clicked');
-    backToDashboard();
+    // Back buttons - UPDATED WITH PREVENT DEFAULT
+    document.getElementById('hide-loans-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        debugLog('Hide Loans button clicked');
+        backToDashboard();
     });
        
     // Logout button
@@ -2503,94 +2559,172 @@ function logout() {
 }
 
 // ==================== DEBUG CONSOLE ====================
-// New function to handle debug console
-function toggleDebugConsole() {
-  const debugConsole = document.getElementById('debug-console');
-  if (debugConsole) {
-    const isVisible = debugConsole.style.display === 'block';
-    debugConsole.style.display = isVisible ? 'none' : 'block';
-    debugLog(`Debug console ${isVisible ? 'hidden' : 'shown'}`);
-    
-    // Scroll to bottom when shown
-    if (!isVisible) {
-      setTimeout(() => {
-        debugConsole.scrollTop = debugConsole.scrollHeight;
-      }, 100);
-    }
+/**
+ * Toggles the visibility of the debug console
+ * @param {Event} [event] - Optional click event
+ */
+function toggleDebugConsole(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
   }
+
+  const debugConsole = document.getElementById('debug-console');
+  const debugToggleBtn = document.getElementById('debug-toggle-btn');
+  
+  if (!debugConsole || !debugToggleBtn) {
+    console.warn('Debug console elements not found');
+    return;
+  }
+
+  const isVisible = debugConsole.style.display === 'block';
+  debugConsole.style.display = isVisible ? 'none' : 'block';
+  
+  // Update button text and icon
+  debugToggleBtn.innerHTML = isVisible 
+    ? '<i class="fas fa-bug"></i> SHOW DEBUG' 
+    : '<i class="fas fa-times"></i> HIDE DEBUG';
+
+  debugLog(`Debug console ${isVisible ? 'hidden' : 'shown'}`);
+  
+  // Scroll to bottom when shown
+  if (!isVisible) {
+    setTimeout(() => {
+      debugConsole.scrollTop = debugConsole.scrollHeight;
+    }, 100);
+  }
+
+  // Save state in localStorage
+  localStorage.setItem('debugConsoleVisible', !isVisible);
 }
 
-// ==================== UPDATED REFRESH FUNCTION ====================
+// Initialize debug console state from localStorage
+function initDebugConsole() {
+  const debugConsole = document.getElementById('debug-console');
+  const debugToggleBtn = document.getElementById('debug-toggle-btn');
+  
+  if (!debugConsole || !debugToggleBtn) return;
+
+  const savedState = localStorage.getItem('debugConsoleVisible') === 'true';
+  debugConsole.style.display = savedState ? 'block' : 'none';
+  
+  // Set initial button state
+  debugToggleBtn.innerHTML = savedState 
+    ? '<i class="fas fa-times"></i> HIDE DEBUG' 
+    : '<i class="fas fa-bug"></i> SHOW DEBUG';
+}
+
+// Set up event listener
+document.addEventListener('DOMContentLoaded', () => {
+  // Initialize debug console state
+  initDebugConsole();
+  
+  // Set up toggle button
+  document.getElementById('debug-toggle-btn')?.addEventListener('click', toggleDebugConsole);
+  
+  // Optional: Add keyboard shortcut (Ctrl+Shift+D)
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+      toggleDebugConsole();
+    }
+  });
+});
+
+// ==================== DEBUG UTILITY ====================
+async function verifyLoanDays(loanId) {
+    try {
+        const response = await apiClient(`/api/verify-days-calculation/${loanId}`);
+        const loanCardElement = document.querySelector(`.loan-card[data-loan-id="${loanId}"]`);
+        const clientDays = loanCardElement?.querySelector('.days-remaining')?.textContent;
+        
+        console.log('Verification Report:', {
+            serverCalculation: response.serverCalculation,
+            clientDisplay: clientDays,
+            timeDiscrepancy: response.serverTime - new Date()
+        });
+    } catch (error) {
+        console.error('Verification failed:', error);
+    }
+}
+
+// Call this when you need to debug a specific loan
+// verifyLoanDays('your-loan-id-here');
+
+// ==================== IMPROVED REFRESH FUNCTION ====================
 async function refreshAdminPortal() {
-  // Get refresh button reference FIRST (outside try/catch)
-  const refreshBtn = document.getElementById('refresh-admin-btn');
-  
-  // Store original text BEFORE try block
-  const originalText = refreshBtn.innerHTML;
-  
-  // Initialize timeout handler
-  let timeout;
-  
-  try {
-    debugLog('Refreshing admin portal...');
-    showNotification('Refreshing data...', 'info');
-    
-    // Disable and show spinner
-    refreshBtn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Refreshing...';
-    refreshBtn.disabled = true;
-    
-    // Set timeout for slow operation warning
-    timeout = setTimeout(() => {
-      if (refreshBtn.innerHTML.includes('fa-spin')) {
-        showNotification('Refresh is taking longer than expected...', 'warning');
-        debugLog('Refresh operation taking longer than 5 seconds');
-      }
-    }, 5000);
-    
-    // Refresh dashboard metrics
-    await loadAdminData();
-    
-    // Refresh current view without changing UI state
-    const currentView = getCurrentView();
-    
-    switch(currentView) {
-      case 'loans':
-        const loanStatus = document.getElementById('loans-section-title').textContent.toLowerCase();
-        if (loanStatus.includes('pending')) await showLoans('pending');
-        else if (loanStatus.includes('active')) await showLoans('active');
-        else if (loanStatus.includes('overdue')) await showLoans('overdue');
-        else if (loanStatus.includes('completed')) await showLoans('completed');
-        break;
-        
-      case 'payments':
-        await showPendingPayments();
-        break;
-        
-      case 'customer':
-        const query = document.getElementById('searchCustomer').value;
-        if (query) await searchCustomer();
-        break;
-        
-      case 'customer-profile':
-        const customerId = document.getElementById('customer-profile-section')?.dataset?.customerId;
-        if (customerId) await loadCustomerProfile(customerId);
-        break;
+    const refreshBtn = document.getElementById('refresh-admin-btn');
+    if (!refreshBtn) {
+        debugLog('Refresh button not found');
+        return;
     }
+
+    // Store original state
+    const originalHTML = refreshBtn.innerHTML;
+    const originalDisabled = refreshBtn.disabled;
     
-    showNotification('Portal data refreshed', 'success');
-  } catch (error) {
-    debugLog(`Refresh failed: ${error.message}`);
-    console.error('CRITICAL REFRESH ERROR:', error);
-    showNotification('Critical error during refresh!', 'error');
-  } finally {
-    // Always clear timeout and restore button state
-    clearTimeout(timeout);
-    
-    if (refreshBtn) {
-      refreshBtn.innerHTML = originalText;
-      refreshBtn.disabled = false;
+    try {
+        // Update UI to show loading state
+        refreshBtn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Refreshing...';
+        refreshBtn.disabled = true;
+        debugLog('Refresh initiated');
+        showNotification('Refreshing data...', 'info');
+
+        // Set timeout for slow operation warning
+        const timeout = setTimeout(() => {
+            if (refreshBtn.innerHTML.includes('fa-spin')) {
+                showNotification('Refresh is taking longer than expected...', 'warning');
+                debugLog('Refresh operation taking longer than expected');
+            }
+        }, 5000);
+
+        // Refresh based on current view - IMPROVED
+        switch(currentView) {
+            case 'dashboard':
+                await loadAdminData();
+                break;
+            case 'loans':
+                const loanStatus = document.getElementById('loans-section-title')?.textContent?.toLowerCase() || '';
+                if (loanStatus.includes('pending')) await showLoans('pending');
+                else if (loanStatus.includes('active')) await showLoans('active');
+                else if (loanStatus.includes('overdue')) await showLoans('overdue');
+                else if (loanStatus.includes('completed')) await showLoans('completed');
+                break;
+            case 'payments':
+                await showPendingPayments();
+                break;
+            case 'customer':
+                const query = document.getElementById('searchCustomer')?.value;
+                if (query) await searchCustomer();
+                break;
+            case 'customer-profile':
+                const customerId = document.getElementById('customer-profile-section')?.dataset?.customerId;
+                if (customerId) await loadCustomerProfile(customerId);
+                break;
+            default:
+                await loadAdminData();
+        }
+
+        // Clean up
+        clearTimeout(timeout);
+        showNotification('Portal data refreshed', 'success');
+        debugLog('Refresh completed successfully');
+    } catch (error) {
+        console.error('Refresh failed:', error);
+        debugLog(`Refresh failed: ${error.message}`);
+        showNotification(`Refresh failed: ${error.message}`, 'error');
+        
+        // Additional error recovery if needed
+        if (error.message.includes('authentication')) {
+            debugLog('Authentication error detected during refresh');
+            setTimeout(logout, 2000);
+        }
+    } finally {
+        // Restore button state
+        if (refreshBtn) {
+            refreshBtn.innerHTML = originalHTML;
+            refreshBtn.disabled = originalDisabled;
+        }
     }
-  }
 }
 
 // ==================== DOCUMENT DOWNLOAD ====================
