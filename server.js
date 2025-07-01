@@ -381,15 +381,16 @@ const loanApplicationSchema = new mongoose.Schema({
   },
   signature: { type: String, required: true },
   verificationStatus: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
-  status: { type: String, enum: ['pending', 'approved', 'rejected', 'active', 'completed', 'defaulted'], default: 'pending' },
+  status: { 
+    type: String, 
+    enum: ['pending', 'approved', 'rejected', 'active', 'completed', 'overdue'], 
+    default: 'pending' 
+  },
   adminNotes: String,
   verificationData: Object,
   dueDate: Date,
   approvedAt: Date,
   rejectedAt: Date,
-  actualDueDate: Date,
-  markedDefault: Boolean,
-  lastStatusUpdate: Date,
   paymentDetails: {
     mode: { type: String, enum: ['M-Pesa'], default: 'M-Pesa' },
     mpesaNumber: String,
@@ -402,21 +403,15 @@ const loanApplicationSchema = new mongoose.Schema({
   repaymentSchedule: [{
     dueDate: Date,
     amount: Number,
-    paidAmount: { type: Number, default: 0 },
+    paidAmount: { type: Number, default: 0 }, // Track partial payments
     status: { 
       type: String, 
-      enum: ['pending', 'paid', 'overdue', 'partial'],
+      enum: ['pending', 'paid', 'overdue', 'partial'], // Includes 'partial'
       default: 'pending' 
     },
     paidAt: Date
   }],
-  totalAmount: { type: Number },
-  principal: { type: Number },
-  interestRate: { type: Number },
-  interestAmount: { type: Number },
-  overdueDays: { type: Number, default: 0 },
-  overdueFees: { type: Number, default: 0 },
-  lastOverdueCalculation: { type: Date }
+  totalAmount: { type: Number } // Total amount including interest
 }, { timestamps: true });
 
 // Add indexes for frequent queries
@@ -1373,21 +1368,21 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
     const numericInterestRate = parseFloat(interestRate);
     const numericRepaymentPeriod = parseInt(repaymentPeriod);
 
-    if (isNaN(numericInterestRate) || numericInterestRate <= 0 || numericInterestRate > 30) {
+    if (isNaN(numericInterestRate)) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
         code: 'INVALID_INTEREST_RATE',
-        message: 'Interest rate must be a positive number between 0 and 30'
+        message: 'Interest rate must be a valid number'
       });
     }
 
-    if (isNaN(numericRepaymentPeriod) || numericRepaymentPeriod < 7 || numericRepaymentPeriod > 365) {
+    if (isNaN(numericRepaymentPeriod)) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
         code: 'INVALID_REPAYMENT_PERIOD',
-        message: 'Repayment period must be between 7 and 365 days'
+        message: 'Repayment period must be a valid number'
       });
     }
 
@@ -1423,11 +1418,13 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + numericRepaymentPeriod);
 
-    // Create repayment schedule
+    // Create repayment schedule with overdue tracking
     const repaymentSchedule = [{
       dueDate: dueDate,
       amount: totalAmount,
-      status: 'pending'
+      paidAmount: 0,
+      status: 'pending',
+      paidAt: null
     }];
 
     // Update loan details with transaction
@@ -1535,6 +1532,127 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
     });
   } finally {
     // End session
+    await session.endSession();
+  }
+});
+
+// ==================== UPDATED PAYMENT APPROVAL LOGIC ====================
+app.patch('/api/admin/payments/:id/approve', authenticateAdmin, async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const payment = await Payment.findById(req.params.id)
+      .populate('userId')
+      .populate('loanId')
+      .session(session);
+    
+    if (!payment) {
+      await session.abortTransaction();
+      return res.status(404).json({ 
+        success: false, 
+        code: 'PAYMENT_NOT_FOUND',
+        message: 'Payment not found' 
+      });
+    }
+
+    const loan = payment.loanId;
+    const customer = payment.userId;
+    const paymentAmount = payment.amount;
+    
+    // Update loan amount paid
+    loan.amountPaid = (loan.amountPaid || 0) + paymentAmount;
+    
+    // Apply payment to installments
+    let remainingAmount = paymentAmount;
+    for (const installment of loan.repaymentSchedule) {
+      if (['pending', 'partial', 'overdue'].includes(installment.status)) {
+        const installmentDue = installment.amount - (installment.paidAmount || 0);
+        const amountToApply = Math.min(remainingAmount, installmentDue);
+        
+        installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
+        installment.paidAt = new Date();
+        
+        // Update status
+        if (installment.paidAmount >= installment.amount) {
+          installment.status = 'paid';
+        } else if (amountToApply > 0) {
+          installment.status = 'partial';
+        }
+        
+        remainingAmount -= amountToApply;
+        
+        if (remainingAmount <= 0) break;
+      }
+    }
+    
+    // Check if loan is fully paid
+    const totalPaid = loan.amountPaid || 0;
+    const totalDue = loan.totalAmount || 0;
+    
+    if (totalPaid >= totalDue) {
+      loan.status = 'completed';
+      customer.activeLoan = null;
+    } else {
+      // Check if any installments are overdue
+      const now = new Date();
+      const hasOverdue = loan.repaymentSchedule.some(installment => 
+        installment.status !== 'paid' && 
+        new Date(installment.dueDate) < now
+      );
+      
+      if (hasOverdue) {
+        loan.status = 'overdue';
+      } else {
+        loan.status = 'active';
+      }
+    }
+    
+    // Update customer balance
+    customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - paymentAmount);
+    
+    // Update payment status
+    payment.status = 'approved';
+    payment.completedAt = new Date();
+    payment.approvedBy = req.admin.username;
+    
+    await Promise.all([
+      loan.save({ session }),
+      customer.save({ session }),
+      payment.save({ session })
+    ]);
+
+    await session.commitTransaction();
+    
+    // Notify user
+    io.to(`user_${customer._id}`).emit('paymentApproved', {
+      amount: paymentAmount,
+      newBalance: customer.currentLoanBalance,
+      loanId: loan._id,
+      isFullyPaid: loan.status === 'completed'
+    });
+
+    res.json({ 
+      success: true,
+      data: {
+        userId: customer._id,
+        loanId: loan._id,
+        amount: paymentAmount,
+        newBalance: customer.currentLoanBalance,
+        loanStatus: loan.status
+      }
+    });
+    
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Payment approval error:', error);
+    res.status(500).json({
+      success: false,
+      code: 'PAYMENT_APPROVAL_FAILED',
+      message: 'Failed to approve payment',
+      systemError: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
     await session.endSession();
   }
 });

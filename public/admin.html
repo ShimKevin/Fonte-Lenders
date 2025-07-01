@@ -520,7 +520,7 @@
             background: rgba(0, 0, 0, 0.9);
             color: #0f0;
             font-family: 'Courier New', monospace;
-            padding: 15px;
+            padding: 0;
             overflow-y: auto;
             z-index: 10000;
             border-top: 1px solid #0f0;
@@ -528,7 +528,42 @@
             box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.5);
         }
 
-        #debug-console div {
+        .debug-header {
+            position: sticky;
+            top: 0;
+            background: #111;
+            padding: 8px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #0f0;
+            z-index: 1;
+        }
+
+        .debug-title {
+            font-weight: bold;
+            color: #0f0;
+        }
+
+        .debug-back-btn {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            transition: all 0.3s;
+        }
+
+        .debug-back-btn:hover {
+            background: rgba(0, 255, 0, 0.1);
+        }
+
+        #debug-content {
+            padding: 15px;
+        }
+
+        #debug-content div {
             margin: 5px 0;
             white-space: pre-wrap;
             word-break: break-word;
@@ -536,7 +571,7 @@
             font-size: 14px;
         }
 
-        #debug-console div::before {
+        #debug-content div::before {
             content: '> ';
             color: #4CAF50;
         }
@@ -880,7 +915,15 @@
 </head>
 <body>
     <!-- Debug Console -->
-    <div id="debug-console"></div>
+    <div id="debug-console">
+        <div class="debug-header">
+            <button class="debug-back-btn" onclick="backToDashboard()">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
+            </button>
+            <span class="debug-title">Debug Console</span>
+        </div>
+        <div id="debug-content"></div>
+    </div>
     
     <!-- Login Container -->
     <div class="luxury-frame" id="login-container">

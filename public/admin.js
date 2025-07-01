@@ -682,6 +682,7 @@ function viewCustomerProfile(customerId) {
     loadCustomerProfile(customerId);
 }
 
+// ==================== UPDATED CUSTOMER PROFILE LOAN DISPLAY ====================
 async function loadCustomerProfile(customerId) {
     try {
         // Update current customer
@@ -693,7 +694,10 @@ async function loadCustomerProfile(customerId) {
             throw new Error('Invalid customer data received');
         }
         
-        renderCustomerProfile(response.data.customer);
+        // Get active loan (including overdue)
+        const activeLoan = await apiClient(`/api/admin/loans/active?customerId=${customerId}`);
+        
+        renderCustomerProfile(response.data.customer, activeLoan.data);
     } catch (error) {
         console.error('Profile load error:', error);
         const profileSection = document.getElementById('customer-profile-section');
@@ -701,14 +705,14 @@ async function loadCustomerProfile(customerId) {
     }
 }
 
-function renderCustomerProfile(customer) {
+function renderCustomerProfile(customer, activeLoan) {
     const profileSection = document.getElementById('customer-profile-section');
     
     // Safely handle currentLoanBalance (default to 0 if undefined)
     const currentBalance = customer.currentLoanBalance || 0;
     const availableCredit = customer.maxLoanLimit - currentBalance;
     
-    profileSection.innerHTML = `
+    let profileHTML = `
     <div class="profile-header">
         <button class="back-btn" onclick="backToDashboard()">
             <i class="fas fa-arrow-left"></i> Back
@@ -737,8 +741,43 @@ function renderCustomerProfile(customer) {
             <div class="profile-field">
                 <strong>Last Login:</strong> ${customer.lastLogin ? new Date(customer.lastLogin).toLocaleString() : 'Never'}
             </div>
-        </div>
+        </div>`;
         
+    // Add active loan section if exists
+    if (activeLoan) {
+        const daysRemaining = calculateDaysRemaining(activeLoan.dueDate);
+        const isOverdue = daysRemaining < 0;
+        
+        profileHTML += `
+        <div class="profile-section">
+            <h4>Active Loan</h4>
+            <div class="active-loan-card ${isOverdue ? 'overdue' : ''}">
+                <div class="loan-summary">
+                    <span class="amount">KES ${activeLoan.amount.toLocaleString()}</span>
+                    <span class="status">${isOverdue ? 'OVERDUE' : 'ACTIVE'}</span>
+                </div>
+                <div class="loan-details">
+                    <div>Due: ${formatDate(activeLoan.dueDate)}</div>
+                    <div>Days: ${isOverdue ? Math.abs(daysRemaining) + ' overdue' : daysRemaining + ' remaining'}</div>
+                    <div>Paid: KES ${activeLoan.amountPaid.toLocaleString()}</div>
+                    <div>Balance: KES ${(activeLoan.totalAmount - activeLoan.amountPaid).toLocaleString()}</div>
+                </div>
+                <button class="action-btn" onclick="showLoanDetails('${activeLoan._id}')">
+                    View Details
+                </button>
+            </div>
+        </div>`;
+    } else {
+        profileHTML += `
+        <div class="profile-section">
+            <h4>Active Loan</h4>
+            <div class="no-active-loan">
+                <p>No active loans</p>
+            </div>
+        </div>`;
+    }
+    
+    profileHTML += `
         <div class="profile-section">
             <h4>Loan Information</h4>
             <div class="profile-field">
@@ -797,8 +836,27 @@ function renderCustomerProfile(customer) {
         </div>
     </div>`;
     
+    profileSection.innerHTML = profileHTML;
+    
     // Load customer's loan history
     loadCustomerLoans(customer._id);
+}
+
+// Helper functions
+function calculateDaysRemaining(dueDate) {
+    const oneDay = 24 * 60 * 60 * 1000; // hours*minutes*seconds*milliseconds
+    const today = new Date();
+    const due = new Date(dueDate);
+    return Math.round((due - today) / oneDay);
+}
+
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    const day = date.getDate();
+    const month = date.toLocaleString('en-US', { month: 'short' });
+    const year = date.getFullYear();
+    
+    return `${day}/${month}/${year}`;
 }
 
 async function loadCustomerLoans(customerId) {
@@ -859,24 +917,6 @@ function renderCustomerLoans(loans) {
             `).join('')}
         </tbody>
     </table>`;
-}
-
-// ==================== IMPROVED BACK TO DASHBOARD FUNCTION ====================
-function backToDashboard() {
-    // Update state - NEWLY ADDED
-    currentView = 'dashboard';
-    
-    // Hide all sections
-    document.getElementById('loans-section')?.classList.add('hidden');
-    document.getElementById('pending-payments-section')?.classList.add('hidden');
-    document.getElementById('customer-profile-section')?.classList.add('hidden');
-    
-    // Show main dashboard
-    document.getElementById('admin-grid')?.classList.remove('hidden');
-    
-    // Reset current views
-    currentCustomerId = null;
-    currentLoanId = null;
 }
 
 // ==================== BULK LIMIT UPDATE ====================
@@ -1054,52 +1094,103 @@ function displayActiveLoans(loans) {
     document.getElementById('loans-section').classList.remove('hidden');
 }
 
+// ==================== ENHANCED LOAN CARD DISPLAY ====================
 function createLoanCard(loan) {
     if (!loan?.dueDate) return ''; // Null check
     
-    // STANDARDIZED CALCULATION
-    const daysRemaining = calculateDaysRemaining(loan.dueDate);
-    const isOverdue = daysRemaining < 0;
+    // Calculate time remaining with precise calculation
+    const now = new Date();
+    const dueDate = new Date(loan.dueDate);
+    const timeRemaining = dueDate - now;
+    const daysRemaining = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
+    const hoursRemaining = Math.floor((timeRemaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     
-    // Calculate balance
-    const balance = (loan.totalAmount || 0) - (loan.amountPaid || 0);
+    // Calculate financials with null checks
+    const principal = loan.principal || loan.amount || 0;
+    const totalAmount = loan.totalAmount || principal; // Default to principal if total not specified
+    const amountPaid = loan.amountPaid || 0;
+    const balance = totalAmount - amountPaid;
+    
+    // Determine status and styling
+    let statusText, statusClass, urgencyBadge = '';
+    const isCompleted = loan.status === 'completed' || balance <= 0;
+    const isOverdue = daysRemaining < 0 && !isCompleted;
+    const isDueSoon = daysRemaining >= 0 && daysRemaining <= 7 && !isCompleted;
+    
+    if (isCompleted) {
+        statusText = 'PAID IN FULL';
+        statusClass = 'status-completed';
+    } else if (isOverdue) {
+        statusText = `${Math.abs(daysRemaining)} DAY${Math.abs(daysRemaining) !== 1 ? 'S' : ''} OVERDUE`;
+        statusClass = 'status-overdue';
+        urgencyBadge = '<div class="overdue-badge">OVERDUE</div>';
+    } else if (isDueSoon) {
+        statusText = `${daysRemaining} DAY${daysRemaining !== 1 ? 'S' : ''} REMAINING`;
+        statusClass = 'status-due-soon';
+        if (daysRemaining <= 3) {
+            urgencyBadge = '<div class="due-soon-badge">DUE SOON</div>';
+        }
+    } else {
+        statusText = `${daysRemaining} DAY${daysRemaining !== 1 ? 'S' : ''} REMAINING`;
+        statusClass = 'status-active';
+    }
+    
+    // Format currency with fallback
+    const formatCurrency = (amount) => `KES ${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     
     return `
-        <div class="loan-card" data-loan-id="${loan._id}">
+        <div class="loan-card ${isOverdue ? 'loan-overdue' : ''}" data-loan-id="${loan._id}">
             <div class="loan-header">
-                <h4>${loan.fullName || 'Unknown'}</h4>
+                <div class="loan-title">
+                    <h4>${loan.fullName || 'Unknown Customer'}</h4>
+                    <span class="loan-product">${loan.productName || 'Standard Loan'}</span>
+                </div>
                 <span class="loan-id">#${loan.loanId?.substring(0, 8) || loan._id.substring(0,8)}</span>
             </div>
-            <div class="loan-details">
-                <div class="detail">
-                    <span>Principal:</span>
-                    <span>KES ${loan.principal?.toLocaleString() || loan.amount?.toLocaleString() || '0'}</span>
+            
+            <div class="loan-details-grid">
+                <div class="loan-metric">
+                    <span class="metric-label">Principal</span>
+                    <span class="metric-value">${formatCurrency(principal)}</span>
                 </div>
-                <div class="detail">
-                    <span>Total Due:</span>
-                    <span>KES ${loan.totalAmount?.toLocaleString() || '0'}</span>
+                <div class="loan-metric">
+                    <span class="metric-label">Total Due</span>
+                    <span class="metric-value">${formatCurrency(totalAmount)}</span>
                 </div>
-                <div class="detail">
-                    <span>Paid:</span>
-                    <span>KES ${loan.amountPaid?.toLocaleString() || '0'}</span>
+                <div class="loan-metric">
+                    <span class="metric-label">Amount Paid</span>
+                    <span class="metric-value positive">${formatCurrency(amountPaid)}</span>
                 </div>
-                <div class="detail">
-                    <span>Balance:</span>
-                    <span>KES ${balance.toLocaleString()}</span>
-                </div>
-                <div class="detail">
-                    <span>Status:</span>
-                    <span class="${isOverdue ? 'text-danger' : daysRemaining < 7 ? 'text-warning' : ''}">
-                        ${isOverdue ? 
-                            `${Math.abs(daysRemaining)} days overdue` : 
-                            `${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining`}
-                    </span>
+                <div class="loan-metric">
+                    <span class="metric-label">Balance</span>
+                    <span class="metric-value ${balance > 0 ? 'negative' : 'positive'}">${formatCurrency(balance)}</span>
                 </div>
             </div>
-            <button class="action-btn" onclick="showLoanDetails('${loan._id}')">
-                View Details
-            </button>
-            ${isOverdue ? '<div class="overdue-badge">OVERDUE</div>' : ''}
+            
+            <div class="loan-status-bar">
+                <div class="status-info">
+                    <span class="${statusClass}">${statusText}</span>
+                    ${daysRemaining >= 0 && !isCompleted ? `
+                    <span class="due-date">Due: ${dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    ` : ''}
+                </div>
+                <div class="progress-container">
+                    <div class="progress-bar" style="width: ${Math.min(100, (amountPaid / totalAmount) * 100)}%"></div>
+                </div>
+            </div>
+            
+            <div class="loan-actions">
+                <button class="action-btn view-details" onclick="showLoanDetails('${loan._id}')">
+                    <i class="fas fa-file-invoice"></i> View Details
+                </button>
+                ${!isCompleted ? `
+                <button class="action-btn record-payment" onclick="showPaymentModal('${loan._id}')">
+                    <i class="fas fa-money-bill-wave"></i> Record Payment
+                </button>
+                ` : ''}
+            </div>
+            
+            ${urgencyBadge}
         </div>
     `;
 }
@@ -2019,56 +2110,6 @@ function updatePendingCount(change) {
     }
 }
 
-/**
- * Returns to admin dashboard
- */
-function backToDashboard() {
-    // Get references to all relevant sections
-    const adminGrid = document.getElementById('admin-grid');
-    const loansSection = document.getElementById('loans-section');
-    const paymentsSection = document.getElementById('pending-payments-section');
-    const profileSection = document.getElementById('customer-profile-section');
-    
-    // Apply fade-out animation to visible sections
-    if (!loansSection.classList.contains('hidden')) {
-        fadeOutSection(loansSection);
-    }
-    if (!paymentsSection.classList.contains('hidden')) {
-        fadeOutSection(paymentsSection);
-    }
-    if (!profileSection.classList.contains('hidden')) {
-        fadeOutSection(profileSection);
-    }
-    
-    // Show main dashboard with fade-in
-    adminGrid.classList.remove('hidden');
-    fadeInSection(adminGrid);
-    
-    // Clear current customer/loan
-    currentCustomerId = null;
-    currentLoanId = null;
-}
-
-// Helper functions for smooth transitions
-function fadeOutSection(section) {
-    section.style.opacity = '1';
-    section.style.transition = 'opacity 0.3s ease';
-    
-    setTimeout(() => {
-        section.style.opacity = '0';
-        setTimeout(() => {
-            section.classList.add('hidden');
-        }, 300);
-    }, 0);
-}
-
-function fadeInSection(section) {
-    section.style.opacity = '0';
-    setTimeout(() => {
-        section.style.opacity = '1';
-    }, 10);
-}
-
 // ==================== REPORTING ====================
 async function generateReport() {
     const reportType = document.getElementById('reportType').value;
@@ -2259,20 +2300,52 @@ function showLongOperationWarning() {
 
 // ==================== IMPROVED BACK TO DASHBOARD FUNCTION ====================
 function backToDashboard() {
-    // Update state - NEWLY ADDED
+    debugLog('Returning to dashboard');
+    
+    // Update state
     currentView = 'dashboard';
     
-    // Hide all sections
-    document.getElementById('loans-section')?.classList.add('hidden');
-    document.getElementById('pending-payments-section')?.classList.add('hidden');
-    document.getElementById('customer-profile-section')?.classList.add('hidden');
+    // Hide debug console
+    const debugConsole = document.getElementById('debug-console');
+    if (debugConsole) {
+        debugConsole.style.display = 'none';
+        // Update debug toggle button text
+        const debugToggleBtn = document.getElementById('debug-toggle-btn');
+        if (debugToggleBtn) {
+            debugToggleBtn.innerHTML = '<i class="fas fa-bug"></i> SHOW DEBUG';
+        }
+        // Save state in localStorage
+        localStorage.setItem('debugConsoleVisible', 'false');
+    }
+    
+    // Hide all sections with proper z-index handling
+    const sectionsToHide = [
+        'loans-section',
+        'pending-payments-section',
+        'customer-profile-section'
+    ];
+    
+    sectionsToHide.forEach(sectionId => {
+        const section = document.getElementById(sectionId);
+        if (section) {
+            section.style.display = 'none';
+            section.style.zIndex = 'auto'; // Reset z-index
+        }
+    });
     
     // Show main dashboard
-    document.getElementById('admin-grid')?.classList.remove('hidden');
+    const adminGrid = document.getElementById('admin-grid');
+    if (adminGrid) {
+        adminGrid.style.display = 'grid'; // Explicitly set display
+        adminGrid.classList.remove('hidden');
+    }
     
     // Reset current views
     currentCustomerId = null;
     currentLoanId = null;
+    
+    // Reload dashboard data
+    loadAdminData();
 }
 
 // ==================== UPDATED EVENT LISTENERS ====================
@@ -2558,77 +2631,95 @@ function logout() {
   }
 }
 
-// ==================== DEBUG CONSOLE ====================
-/**
- * Toggles the visibility of the debug console
- * @param {Event} [event] - Optional click event
- */
-function toggleDebugConsole(event) {
-  if (event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-
-  const debugConsole = document.getElementById('debug-console');
-  const debugToggleBtn = document.getElementById('debug-toggle-btn');
-  
-  if (!debugConsole || !debugToggleBtn) {
-    console.warn('Debug console elements not found');
-    return;
-  }
-
-  const isVisible = debugConsole.style.display === 'block';
-  debugConsole.style.display = isVisible ? 'none' : 'block';
-  
-  // Update button text and icon
-  debugToggleBtn.innerHTML = isVisible 
-    ? '<i class="fas fa-bug"></i> SHOW DEBUG' 
-    : '<i class="fas fa-times"></i> HIDE DEBUG';
-
-  debugLog(`Debug console ${isVisible ? 'hidden' : 'shown'}`);
-  
-  // Scroll to bottom when shown
-  if (!isVisible) {
-    setTimeout(() => {
-      debugConsole.scrollTop = debugConsole.scrollHeight;
-    }, 100);
-  }
-
-  // Save state in localStorage
-  localStorage.setItem('debugConsoleVisible', !isVisible);
-}
-
-// Initialize debug console state from localStorage
-function initDebugConsole() {
-  const debugConsole = document.getElementById('debug-console');
-  const debugToggleBtn = document.getElementById('debug-toggle-btn');
-  
-  if (!debugConsole || !debugToggleBtn) return;
-
-  const savedState = localStorage.getItem('debugConsoleVisible') === 'true';
-  debugConsole.style.display = savedState ? 'block' : 'none';
-  
-  // Set initial button state
-  debugToggleBtn.innerHTML = savedState 
-    ? '<i class="fas fa-times"></i> HIDE DEBUG' 
-    : '<i class="fas fa-bug"></i> SHOW DEBUG';
-}
-
-// Set up event listener
-document.addEventListener('DOMContentLoaded', () => {
-  // Initialize debug console state
-  initDebugConsole();
-  
-  // Set up toggle button
-  document.getElementById('debug-toggle-btn')?.addEventListener('click', toggleDebugConsole);
-  
-  // Optional: Add keyboard shortcut (Ctrl+Shift+D)
-  document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-      toggleDebugConsole();
+// ==================== DEBUG LOGGER ====================
+function debugLog(message) {
+    const debugContent = document.getElementById('debug-content');
+    if (debugContent) {
+        const entry = document.createElement('div');
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        debugContent.appendChild(entry);
+        debugContent.scrollTop = debugContent.scrollHeight;
     }
-  });
-});
+    console.log(message);
+}
+
+// ==================== DEBUG CONSOLE TOGGLE ====================
+function toggleDebugConsole(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    const debugConsole = document.getElementById('debug-console');
+    const debugToggleBtn = document.getElementById('debug-toggle-btn');
+    
+    if (!debugConsole || !debugToggleBtn) {
+        console.warn('Debug console elements not found');
+        return;
+    }
+
+    const isVisible = debugConsole.style.display === 'block';
+    debugConsole.style.display = isVisible ? 'none' : 'block';
+    debugConsole.style.zIndex = isVisible ? 'auto' : '10000'; // Ensure proper z-index
+    
+    // Update button text and icon
+    debugToggleBtn.innerHTML = isVisible 
+        ? '<i class="fas fa-bug"></i> SHOW DEBUG' 
+        : '<i class="fas fa-times"></i> HIDE DEBUG';
+
+    debugLog(`Debug console ${isVisible ? 'hidden' : 'shown'}`);
+    
+    // Scroll to bottom when shown
+    if (!isVisible) {
+        setTimeout(() => {
+            const debugContent = document.getElementById('debug-content');
+            if (debugContent) {
+                debugContent.scrollTop = debugContent.scrollHeight;
+            }
+        }, 100);
+    }
+
+    // Save state in localStorage
+    localStorage.setItem('debugConsoleVisible', !isVisible);
+}
+
+// ==================== INITIALIZE DEBUG CONSOLE ====================
+function initDebugConsole() {
+    const debugConsole = document.getElementById('debug-console');
+    const debugToggleBtn = document.getElementById('debug-toggle-btn');
+    
+    if (!debugConsole || !debugToggleBtn) return;
+
+    const savedState = localStorage.getItem('debugConsoleVisible') === 'true';
+    debugConsole.style.display = savedState ? 'block' : 'none';
+    
+    // Set initial button state
+    debugToggleBtn.innerHTML = savedState 
+        ? '<i class="fas fa-times"></i> HIDE DEBUG' 
+        : '<i class="fas fa-bug"></i> SHOW DEBUG';
+}
+
+// ==================== SETUP DEBUG CONSOLE ====================
+function setupDebugConsole() {
+    // Initialize debug console state
+    initDebugConsole();
+    
+    // Set up toggle button
+    document.getElementById('debug-toggle-btn')?.addEventListener('click', toggleDebugConsole);
+    
+    // Add keyboard shortcut (Ctrl+Shift+D)
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+            toggleDebugConsole();
+        }
+    });
+    
+    // Log initialization
+    debugLog('Debug console initialized');
+}
+
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', setupDebugConsole);
 
 // ==================== DEBUG UTILITY ====================
 async function verifyLoanDays(loanId) {
