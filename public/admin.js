@@ -3,8 +3,11 @@ const API_BASE_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:3000'
   : 'https://fonte-lenders.onrender.com';
 
-// State management variable - NEWLY ADDED
+// State management variable
 let currentView = 'dashboard';
+let currentAdmin = null;
+let currentLoanId = null;
+let currentCustomerId = null;
 
 // Date formatting utility         
 function formatDate(dateString) {
@@ -18,19 +21,18 @@ function formatDate(dateString) {
 }
 
 // ==================== SOCKET.IO CONNECTION ====================
-// Initialize Socket.IO connection with enhanced configuration
 const socket = io(API_BASE_URL, {
   auth: {
     token: localStorage.getItem('adminToken')
   },
   reconnection: true,
-  reconnectionAttempts: 10, // Increased from 5
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 10000,
-  randomizationFactor: 0.5, // Adds some randomness to reconnection delays
-  timeout: 20000, // Increased connection timeout
+  reconnectionAttempts: 10,
+  reconnectionDelay: 2000,
+  reconnectionDelayMax: 30000,
+  randomizationFactor: 0.5,
+  timeout: 30000,
   autoConnect: true,
-  transports: ['websocket', 'polling'], // Fallback transport
+  transports: ['websocket', 'polling'],
   upgrade: true,
   rememberUpgrade: true,
   withCredentials: true
@@ -41,14 +43,12 @@ socket.on('connect', () => {
   debugLog('Socket connected successfully');
   showNotification('Connected to real-time service', 'success');
   
-  // Re-authenticate on reconnect
   const token = localStorage.getItem('adminToken');
   if (token) {
     socket.emit('authenticate', { token });
     debugLog('Sent authentication token after reconnect');
   }
   
-  // Join admin room if authenticated
   if (currentAdmin) {
     socket.emit('joinAdminRoom');
     debugLog('Joined admin room');
@@ -59,14 +59,10 @@ socket.on('connect_error', (err) => {
   debugLog(`Socket connection error: ${err.message}`);
   showNotification('Connection error. Attempting to reconnect...', 'warning');
   
-  // Exponential backoff reconnection with jitter
-  const baseDelay = Math.min(socket.reconnectionAttempts * 1000, 10000);
-  const jitter = baseDelay * 0.2 * Math.random();
-  const delay = Math.min(baseDelay + jitter, 15000);
-  
+  const delay = Math.min(socket.reconnectionAttempts * 3000, 45000);
   setTimeout(() => {
     if (socket.disconnected) {
-      debugLog(`Attempting reconnection (attempt ${socket.reconnectionAttempts + 1}) after ${delay}ms`);
+      debugLog(`Attempting reconnection after ${delay}ms`);
       socket.connect();
     }
   }, delay);
@@ -76,13 +72,10 @@ socket.on('disconnect', (reason) => {
   debugLog(`Socket disconnected: ${reason}`);
   
   if (reason === 'io server disconnect') {
-    // Server-initiated disconnect (likely auth failure)
     showNotification('Server disconnected. Please refresh the page.', 'error');
   } else {
-    // Network issues or voluntary disconnect
     showNotification('Connection lost. Reconnecting...', 'warning');
     
-    // Auto-reconnect with increasing delay
     const delay = Math.min(socket.reconnectionAttempts * 1500, 15000);
     setTimeout(() => {
       if (socket.disconnected) {
@@ -95,7 +88,6 @@ socket.on('disconnect', (reason) => {
 
 socket.on('reconnect_attempt', (attempt) => {
   debugLog(`Reconnection attempt ${attempt}`);
-  // Switch transport method if needed
   if (attempt % 2 === 0) {
     socket.io.opts.transports = ['polling', 'websocket'];
   }
@@ -106,7 +98,6 @@ socket.on('reconnect_failed', () => {
   showNotification('Failed to establish connection. Please check your network and refresh the page.', 'error');
 });
 
-// Authentication handlers
 socket.on('authenticated', () => {
   debugLog('Socket authentication successful');
 });
@@ -117,122 +108,146 @@ socket.on('unauthorized', (err) => {
   logout();
 });
 
-// Global variables
-let currentAdmin = null;
-let currentLoanId = null;
-let currentCustomerId = null; // Track currently viewed customer
+// Socket event validation
+function validateSocketMessage(message) {
+  if (!message.eventId || !message.timestamp) return false;
+  if (Date.now() - new Date(message.timestamp) > 60000) return false;
+  if (message.adminId && !isValidAdmin(message.adminId)) return false;
+  return true;
+}
 
-// ==================== SOCKET EVENT LISTENERS ====================
-// Listen for loan updates
+function isValidAdmin(adminId) {
+  return adminId === currentAdmin?._id;
+}
+
+// Socket event listeners with validation
 socket.on('loanUpdate', (data) => {
-    debugLog(`Received loanUpdate: ${JSON.stringify(data)}`);
-    
-    // Refresh all relevant sections
-    if (currentCustomerId === data.userId) {
-        loadCustomerProfile(currentCustomerId);
-    }
-    
-    showLoans('pending');
-    showLoans('active');
-    showPendingPayments();
-    
-    // Show notification
-    showNotification(`Loan ${data.loanId} ${data.status} by ${data.adminName}`, 'info');
+  if (!validateSocketMessage(data)) {
+    debugLog('Invalid loanUpdate message received');
+    return;
+  }
+  
+  debugLog(`Received loanUpdate: ${JSON.stringify(data)}`);
+  
+  if (currentCustomerId === data.userId) {
+    loadCustomerProfile(currentCustomerId);
+  }
+  
+  showLoans('pending');
+  showLoans('active');
+  showPendingPayments();
+  
+  showNotification(`Loan ${data.loanId} ${data.status} by ${data.adminName}`, 'info');
 });
 
-// Listen for payment updates
 socket.on('paymentUpdate', (data) => {
-    debugLog(`Received paymentUpdate: ${JSON.stringify(data)}`);
-    
-    // Refresh all relevant sections
-    if (currentCustomerId === data.userId) {
-        loadCustomerProfile(currentCustomerId);
-    }
-    
-    showPendingPayments();
-    
-    if (currentLoanId === data.loanId) {
-        showLoanDetails(data.loanId);
-    }
-    
-    // Show notification
-    showNotification(`Payment ${data.status} for loan ${data.loanId}`, 'info');
+  if (!validateSocketMessage(data)) {
+    debugLog('Invalid paymentUpdate message received');
+    return;
+  }
+  
+  debugLog(`Received paymentUpdate: ${JSON.stringify(data)}`);
+  
+  if (currentCustomerId === data.userId) {
+    loadCustomerProfile(currentCustomerId);
+  }
+  
+  showPendingPayments();
+  
+  if (currentLoanId === data.loanId) {
+    showLoanDetails(data.loanId);
+  }
+  
+  showNotification(`Payment ${data.status} for loan ${data.loanId}`, 'info');
 });
 
-// Listen for limit updates
 socket.on('limitUpdate', (data) => {
-    debugLog(`Received limitUpdate: ${JSON.stringify(data)}`);
-    showNotification(`Loan limit updated for customer`, 'info');
-    
-    // Refresh customer view if we're looking at it
-    if (currentCustomerId === data.customerId) {
-        loadCustomerProfile(data.customerId);
-    }
+  if (!validateSocketMessage(data)) {
+    debugLog('Invalid limitUpdate message received');
+    return;
+  }
+  
+  debugLog(`Received limitUpdate: ${JSON.stringify(data)}`);
+  showNotification(`Loan limit updated for customer`, 'info');
+  
+  if (currentCustomerId === data.customerId) {
+    loadCustomerProfile(data.customerId);
+  }
 });
 
-// Listen for loan approval events
 socket.on('loanApproved', (data) => {
-    debugLog(`Received loanApproved event: ${JSON.stringify(data)}`);
-    
-    // Refresh customer profile if viewing the customer
-    if (currentCustomerId === data.userId) {
-        loadCustomerProfile(currentCustomerId);
-        debugLog(`Refreshed customer profile for ${currentCustomerId}`);
-    }
-    
-    // Refresh loan lists
-    const currentStatus = document.getElementById('loans-section-title')?.textContent || '';
-    if (currentStatus.includes('Pending') || currentStatus.includes('Active')) {
-        showLoans('pending');
-        debugLog('Refreshed loans list after approval');
-    }
+  if (!validateSocketMessage(data)) {
+    debugLog('Invalid loanApproved message received');
+    return;
+  }
+  
+  debugLog(`Received loanApproved event: ${JSON.stringify(data)}`);
+  
+  if (currentCustomerId === data.userId) {
+    loadCustomerProfile(currentCustomerId);
+    debugLog(`Refreshed customer profile for ${currentCustomerId}`);
+  }
+  
+  const currentStatus = document.getElementById('loans-section-title')?.textContent || '';
+  if (currentStatus.includes('Pending') || currentStatus.includes('Active')) {
+    showLoans('pending');
+    debugLog('Refreshed loans list after approval');
+  }
 });
 
-// Listen for payment approved events
 socket.on('paymentApproved', (data) => {
-    debugLog(`Received paymentApproved: ${JSON.stringify(data)}`);
-    showNotification(`Payment of KES ${data.amount} approved for ${data.customerName}`, 'success');
-    
-    if (currentCustomerId === data.userId) {
-        loadCustomerProfile(data.userId);
-    }
-    
-    if (currentLoanId === data.loanId) {
-        showLoanDetails(data.loanId);
-    }
+  if (!validateSocketMessage(data)) {
+    debugLog('Invalid paymentApproved message received');
+    return;
+  }
+  
+  debugLog(`Received paymentApproved: ${JSON.stringify(data)}`);
+  showNotification(`Payment of KES ${data.amount} approved for ${data.customerName}`, 'success');
+  
+  if (currentCustomerId === data.userId) {
+    loadCustomerProfile(data.userId);
+  }
+  
+  if (currentLoanId === data.loanId) {
+    showLoanDetails(data.loanId);
+  }
 });
 
-// Listen for payment rejected events
 socket.on('paymentRejected', (data) => {
-    debugLog(`Received paymentRejected: ${JSON.stringify(data)}`);
-    showNotification(`Payment rejected by ${data.adminName}`, 'warning');
+  if (!validateSocketMessage(data)) {
+    debugLog('Invalid paymentRejected message received');
+    return;
+  }
+  
+  debugLog(`Received paymentRejected: ${JSON.stringify(data)}`);
+  showNotification(`Payment rejected by ${data.adminName}`, 'warning');
 });
 
-// Listen for admin notifications
 socket.on('adminNotification', (data) => {
-    debugLog(`Received admin notification: ${JSON.stringify(data)}`);
-    showNotification(data.message, data.type || 'info');
+  if (!validateSocketMessage(data)) {
+    debugLog('Invalid adminNotification message received');
+    return;
+  }
+  
+  debugLog(`Received admin notification: ${JSON.stringify(data)}`);
+  showNotification(data.message, data.type || 'info');
 });
 
-// Listen for reconnection events
 socket.on('reconnect', (attemptNumber) => {
-    debugLog(`Socket reconnected after ${attemptNumber} attempts`);
-    showNotification('Connection restored', 'success');
-    
-    // Re-authenticate after reconnection
-    if (currentAdmin) {
-        socket.emit('authenticate', { token: localStorage.getItem('adminToken') });
-    }
+  debugLog(`Socket reconnected after ${attemptNumber} attempts`);
+  showNotification('Connection restored', 'success');
+  
+  if (currentAdmin) {
+    socket.emit('authenticate', { token: localStorage.getItem('adminToken') });
+  }
 });
 
-// Listen for reconnect failed events
-socket.on('reconnect_failed', () => {
-    debugLog('Socket reconnection failed');
-    showNotification('Failed to reconnect to server. Please refresh the page.', 'error');
-});
-
-// Add socket listener for overdue loan updates
 socket.on('overdueUpdate', (data) => {
+  if (!validateSocketMessage(data)) {
+    debugLog('Invalid overdueUpdate message received');
+    return;
+  }
+  
   debugLog(`Received overdueUpdate: ${JSON.stringify(data)}`);
   
   if (currentCustomerId === data.userId) {
@@ -240,7 +255,6 @@ socket.on('overdueUpdate', (data) => {
     loadCustomerProfile(currentCustomerId);
   }
   
-  // Refresh loan views if needed
   if (currentLoanId === data.loanId) {
     showLoanDetails(data.loanId);
   }
@@ -248,9 +262,9 @@ socket.on('overdueUpdate', (data) => {
   showNotification(`Overdue fees updated for loan ${data.loanId}`, 'warning');
 });
 
-// ==================== API CLIENT (UTILITY FUNCTION) ====================
+// ==================== API CLIENT ====================
 async function apiClient(endpoint, method = 'GET', body = null) {
-    const token = localStorage.getItem("adminToken");
+    let token = localStorage.getItem("adminToken");
     if (!token) {
         debugLog('No token found - logging out');
         logout();
@@ -258,11 +272,11 @@ async function apiClient(endpoint, method = 'GET', body = null) {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
         debugLog(`API request: ${method} ${endpoint}`);
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        let response = await fetch(`${API_BASE_URL}${endpoint}`, {
             method,
             headers: {
                 'Content-Type': 'application/json',
@@ -274,37 +288,46 @@ async function apiClient(endpoint, method = 'GET', body = null) {
 
         clearTimeout(timeoutId);
         
-        // Handle 401 Unauthorized responses
+        // Handle token expiration
         if (response.status === 401) {
-            debugLog('Token expired - attempting refresh');
-            try {
-                // Call refresh token endpoint
-                const refreshResponse = await fetch(`${API_BASE_URL}/api/admin/refresh-token`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        refreshToken: localStorage.getItem('adminRefreshToken') 
-                    })
-                });
+            const errorData = await response.json();
+            if (errorData.code === 'TokenExpiredError') {
+                debugLog('Token expired - attempting refresh');
+                try {
+                    const refreshResponse = await fetch(`${API_BASE_URL}/api/admin/refresh-token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            refreshToken: localStorage.getItem('adminRefreshToken') 
+                        })
+                    });
 
-                if (refreshResponse.ok) {
-                    const { token: newToken, refreshToken } = await refreshResponse.json();
-                    localStorage.setItem('adminToken', newToken);
-                    localStorage.setItem('adminRefreshToken', refreshToken);
-                    
-                    // Retry original request with new token
-                    return apiClient(endpoint, method, body);
-                } else {
-                    throw new Error('Failed to refresh token');
+                    if (refreshResponse.ok) {
+                        const { token: newToken, refreshToken: newRefreshToken } = await refreshResponse.json();
+                        localStorage.setItem('adminToken', newToken);
+                        localStorage.setItem('adminRefreshToken', newRefreshToken);
+                        
+                        // Update socket auth token
+                        if (socket) {
+                            socket.auth.token = newToken;
+                            if (!socket.connected) socket.connect();
+                        }
+                        
+                        // Retry the original request with new token
+                        return apiClient(endpoint, method, body);
+                    } else {
+                        throw new Error('Failed to refresh token');
+                    }
+                } catch (refreshError) {
+                    debugLog(`Token refresh failed: ${refreshError.message}`);
+                    logout();
+                    throw new Error('Session expired. Please login again.');
                 }
-            } catch (refreshError) {
-                debugLog(`Token refresh failed: ${refreshError.message}`);
-                logout();
-                throw new Error('Session expired. Please login again.');
+            } else {
+                throw new Error(errorData.message || 'Authentication failed');
             }
         }
         
-        // Handle 204 No Content responses
         if (response.status === 204) {
             return { success: true };
         }
@@ -335,54 +358,41 @@ async function apiClient(endpoint, method = 'GET', body = null) {
     }
 }
 
-// ==================== DEBUG LOGGER ====================
-function debugLog(message) {
-    const consoleDiv = document.getElementById('debug-console');
-    if (consoleDiv) {
-        const entry = document.createElement('div');
-        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-        consoleDiv.appendChild(entry);
-        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+async function validateTokenOnLoad() {
+    const token = localStorage.getItem("adminToken");
+    const refreshToken = localStorage.getItem("adminRefreshToken");
+    
+    if (!token || !refreshToken) {
+        showLoginContent();
+        return;
     }
-    console.log(message);
+
+    try {
+        // Check if token is about to expire (within 5 minutes)
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const expiresIn = (payload.exp * 1000) - Date.now();
+        
+        if (expiresIn < 300000) { // 5 minutes in milliseconds
+            debugLog('Token about to expire - refreshing');
+            await refreshAdminToken();
+        }
+        
+        await checkAuthStatus();
+    } catch (error) {
+        debugLog(`Token validation error: ${error.message}`);
+        showLoginContent();
+    }
 }
 
-// ==================== INITIALIZATION ====================
-document.addEventListener('DOMContentLoaded', async () => {
-    debugLog('DOMContentLoaded - Initializing admin portal');
-    await checkAuthStatus();
+// Call this in your DOMContentLoaded event
+document.addEventListener('DOMContentLoaded', () => {
+    debugLog('DOM fully loaded');
+    setupDebugConsole();
     setupEventListeners();
-    setupModalCloseHandlers();
-    
-    // Add admin to admin room if authenticated
-    if (currentAdmin) {
-        socket.emit('joinAdminRoom');
-        debugLog('Joined admin room');
-        loadAdminData();
-    }
+    validateTokenOnLoad();
 });
 
-function setupModalCloseHandlers() {
-  document.querySelectorAll('.close-modal').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const modal = this.closest('.modal');
-      if (modal) {
-        modal.style.display = 'none';
-      }
-    });
-  });
-  
-  // Close when clicking outside modal content
-  document.querySelectorAll('.modal').forEach(modal => {
-    modal.addEventListener('click', function(e) {
-      if (e.target === this) {
-        this.style.display = 'none';
-      }
-    });
-  });
-}
-
-// ==================== CHECK PASSWORD FUNCTION ====================
+// ==================== AUTHENTICATION FUNCTIONS ====================
 async function checkPassword() {
     const username = document.getElementById('username-input').value.trim();
     const password = document.getElementById('password-input').value.trim();
@@ -398,7 +408,6 @@ async function checkPassword() {
     
     if (success) {
         debugLog('Login successful');
-        // Join admin room after login
         socket.emit('joinAdminRoom');
         debugLog('Joined admin room');
     } else {
@@ -406,7 +415,6 @@ async function checkPassword() {
     }
 }
 
-// ==================== ADMIN LOGIN FUNCTION ====================
 async function adminLogin(username, password) {
     try {
         showLoading('login');
@@ -434,6 +442,13 @@ async function adminLogin(username, password) {
             localStorage.setItem("adminRefreshToken", data.refreshToken);
             localStorage.setItem("adminId", data.admin._id || data.admin.id);
             currentAdmin = data.admin;
+            
+            // Update socket auth token
+            if (socket) {
+                socket.auth.token = data.token;
+                if (!socket.connected) socket.connect();
+            }
+            
             showAdminContent();
             return true;
         } else {
@@ -449,7 +464,6 @@ async function adminLogin(username, password) {
     }
 }
 
-// ==================== AUTHENTICATION FUNCTIONS ====================
 async function checkAuthStatus() {
     const token = localStorage.getItem("adminToken");
 
@@ -485,7 +499,6 @@ async function loadAdminData() {
         showLoading('dashboard');
         debugLog('Loading admin dashboard data...');
         
-        // Optimized: Single API call for all dashboard data
         const response = await apiClient('/api/admin/metrics');
         const metrics = response.data;
         
@@ -493,7 +506,6 @@ async function loadAdminData() {
         updateDashboardMetrics(metrics);
         document.getElementById('admin-username').textContent = `Logged in as: ${currentAdmin.username}`;
         
-        // Update loan counts from metrics
         document.getElementById('pending-loans-count').textContent = `${metrics.pendingApplications || 0} pending`;
         document.getElementById('active-loans-count').textContent = `${metrics.activeLoans || 0} active`;
         document.getElementById('overdue-loans-count').textContent = `${metrics.overdueLoans || 0} overdue`;
@@ -525,13 +537,11 @@ async function searchCustomer() {
     }
     
     try {
-        // Show loading state
         customerDetails.innerHTML = '<div class="spinner"></div>';
         debugLog(`Searching customers: ${query}`);
         
         const response = await apiClient(`/api/admin/customers?search=${encodeURIComponent(query)}`);
         
-        // FIX: Access response.customers directly
         if (!response.success) {
             throw new Error(response.message || 'Search failed');
         }
@@ -547,7 +557,6 @@ async function searchCustomer() {
     }
 }
 
-// Enhanced customer display with limit controls
 function displayCustomerResults(customers) {
     const container = document.getElementById('customerDetails');
     
@@ -557,7 +566,6 @@ function displayCustomerResults(customers) {
     }
     
     container.innerHTML = customers.map(customer => {
-        // Calculate available credit safely
         const maxLimit = customer.maxLoanLimit || 0;
         const currentBalance = customer.currentLoanBalance || 0;
         const availableCredit = Math.max(maxLimit - currentBalance, 0);
@@ -636,7 +644,9 @@ async function updateCustomerLimit(customerId, context = 'search') {
     }
 
     try {
+        showLoading(messageDiv.id);
         debugLog(`Updating limit for customer ${customerId} to ${newLimit}`);
+        
         const response = await apiClient(
             `/api/admin/customers/${customerId}/limit`,
             'PUT',
@@ -646,24 +656,34 @@ async function updateCustomerLimit(customerId, context = 'search') {
         showSuccess('Limit updated successfully', messageDiv);
         input.value = response.newLimit;
         
-        // Refresh profile view if we're in profile context
         if (context === 'profile') {
             loadCustomerProfile(customerId);
         }
         
-        // Emit socket event for limit update
         socket.emit('limitUpdated', {
             userId: customerId,
-            newLimit: newLimit
+            newLimit: newLimit,
+            adminId: currentAdmin._id,
+            timestamp: new Date().toISOString(),
+            signature: createEventSignature(`limitUpdate-${customerId}`)
         });
+
     } catch (error) {
         debugLog(`Limit update error: ${error.message}`);
         showError(error.message, messageDiv);
+        
+        // Specific handling for different error types
+        if (error.message.includes('Customer not found')) {
+            showError('Customer not found. Please refresh the page.', messageDiv);
+        } else if (error.message.includes('validation failed')) {
+            showError('Invalid limit value', messageDiv);
+        }
+    } finally {
+        hideLoading(messageDiv.id);
     }
 }
 
 function viewCustomerProfile(customerId) {
-    // Show profile section and hide other sections
     document.getElementById('admin-grid').classList.add('hidden');
     document.getElementById('loans-section').classList.add('hidden');
     document.getElementById('pending-payments-section').classList.add('hidden');
@@ -671,21 +691,218 @@ function viewCustomerProfile(customerId) {
     const profileSection = document.getElementById('customer-profile-section');
     profileSection.classList.remove('hidden');
     
-    // Track current customer
     currentCustomerId = customerId;
     profileSection.dataset.customerId = customerId;
-    
-    // Show loading state
     profileSection.innerHTML = '<div class="spinner"></div>';
     
-    // Fetch and display customer profile
     loadCustomerProfile(customerId);
 }
 
-// ==================== UPDATED CUSTOMER PROFILE LOAN DISPLAY ====================
+async function processBulkLimits() {
+    const fileInput = document.getElementById('bulkLimitFile');
+    const resultDiv = document.getElementById('bulkUpdateResult');
+    
+    if (!fileInput.files.length) {
+        showError('Please select a CSV file first', resultDiv);
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+
+    reader.onload = async (event) => {
+        try {
+            showLoading('bulkUpdateResult');
+            const csvData = event.target.result;
+            const lines = csvData.split('\n');
+            const updates = [];
+            let successCount = 0;
+            let errorCount = 0;
+            const errorDetails = [];
+
+            // Parse CSV (skip header if exists)
+            const startLine = lines[0].includes('customerId') ? 1 : 0;
+            for (let i = startLine; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                const [customerId, newLimit] = line.split(',');
+                if (customerId && newLimit && !isNaN(newLimit)) {
+                    updates.push({
+                        customerId: customerId.trim(),
+                        newLimit: parseFloat(newLimit.trim()),
+                        lineNumber: i + 1  // Track line number for error reporting
+                    });
+                } else {
+                    errorDetails.push({
+                        line: i + 1,
+                        error: 'Invalid format',
+                        data: line
+                    });
+                    errorCount++;
+                }
+            }
+
+            if (!updates.length && errorDetails.length === 0) {
+                throw new Error('No valid records found in CSV');
+            }
+
+            // Process updates in batches
+            const BATCH_SIZE = 5;
+            for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+                const batch = updates.slice(i, i + BATCH_SIZE);
+                const batchResults = await Promise.allSettled(
+                    batch.map(update => 
+                        apiClient(
+                            `/api/admin/customers/${update.customerId}/limit`,
+                            'PUT',
+                            { newLimit: update.newLimit }
+                        ).catch(error => {
+                            return Promise.reject({
+                                error,
+                                customerId: update.customerId,
+                                lineNumber: update.lineNumber
+                            });
+                        })
+                    )
+                );
+
+                batchResults.forEach((result, index) => {
+                    if (result.status === 'fulfilled') {
+                        successCount++;
+                        // Notify customer via socket
+                        socket.emit('limitUpdated', {
+                            userId: batch[index].customerId,
+                            newLimit: batch[index].newLimit,
+                            adminId: currentAdmin._id,
+                            timestamp: new Date().toISOString(),
+                            signature: createEventSignature(`bulkLimit-${batch[index].customerId}`)
+                        });
+                    } else {
+                        errorCount++;
+                        const error = result.reason.error?.message || result.reason.message;
+                        errorDetails.push({
+                            line: batch[index].lineNumber,
+                            customerId: batch[index].customerId,
+                            error: error,
+                            data: `${batch[index].customerId},${batch[index].newLimit}`
+                        });
+                        debugLog(`Failed to update ${batch[index].customerId}: ${error}`);
+                    }
+                });
+
+                // Update progress
+                resultDiv.innerHTML = `
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: ${Math.min(100, (i / updates.length) * 100)}%"></div>
+                    </div>
+                    <div>Processed ${Math.min(i + BATCH_SIZE, updates.length)} of ${updates.length} records</div>
+                    <div class="text-success">Success: ${successCount}</div>
+                    <div class="text-danger">Errors: ${errorCount}</div>
+                `;
+            }
+
+            // Store error details for later viewing
+            if (errorDetails.length > 0) {
+                resultDiv.dataset.errorDetails = JSON.stringify(errorDetails);
+            }
+
+            // Final result
+            resultDiv.innerHTML = `
+                <div class="alert ${errorCount > 0 ? 'alert-warning' : 'alert-success'}">
+                    <i class="fas ${errorCount > 0 ? 'fa-exclamation-triangle' : 'fa-check-circle'}"></i>
+                    Bulk update completed with ${errorCount} error(s)
+                </div>
+                <div>Total records processed: ${updates.length + errorDetails.length}</div>
+                <div class="text-success">Successfully updated: ${successCount}</div>
+                <div class="text-danger">Failed updates: ${errorCount}</div>
+                ${errorCount > 0 ? 
+                    '<button class="btn btn-sm btn-outline-danger mt-2" onclick="showBulkErrorDetails()">Show Error Details</button>' : 
+                    ''
+                }
+            `;
+
+            // Refresh customer data if viewing a profile
+            if (currentCustomerId && updates.some(u => u.customerId === currentCustomerId)) {
+                loadCustomerProfile(currentCustomerId);
+            }
+
+        } catch (error) {
+            showError(`Bulk update failed: ${error.message}`, resultDiv);
+            debugLog(`Bulk limit error: ${error.message}`);
+        } finally {
+            hideLoading('bulkUpdateResult');
+        }
+    };
+
+    reader.onerror = () => {
+        showError('Error reading file', resultDiv);
+    };
+
+    reader.readAsText(file);
+}
+
+function showBulkErrorDetails() {
+    const resultDiv = document.getElementById('bulkUpdateResult');
+    const errorDetails = JSON.parse(resultDiv.dataset.errorDetails || '[]');
+    
+    if (errorDetails.length === 0) {
+        showNotification('No error details available', 'info');
+        return;
+    }
+
+    // Create a modal to display errors
+    const modalContent = `
+        <div class="modal-header">
+            <h5 class="modal-title">Bulk Update Errors</h5>
+            <button type="button" class="close" data-dismiss="modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered">
+                    <thead class="thead-light">
+                        <tr>
+                            <th>Line #</th>
+                            <th>Customer ID</th>
+                            <th>Error</th>
+                            <th>Data</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${errorDetails.map(error => `
+                            <tr>
+                                <td>${error.line}</td>
+                                <td>${error.customerId || 'N/A'}</td>
+                                <td class="text-danger">${error.error}</td>
+                                <td><small>${error.data || 'N/A'}</small></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+        </div>
+    `;
+
+    // Create or update modal
+    let modal = document.getElementById('bulkErrorsModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'bulkErrorsModal';
+        modal.className = 'modal fade';
+        modal.innerHTML = modalContent;
+        document.body.appendChild(modal);
+        $(modal).modal(); // Initialize with jQuery
+    } else {
+        modal.innerHTML = modalContent;
+        $(modal).modal('show');
+    }
+}
+
 async function loadCustomerProfile(customerId) {
     try {
-        // Update current customer
         currentCustomerId = customerId;
         
         const response = await apiClient(`/api/admin/customers/${customerId}`);
@@ -694,9 +911,7 @@ async function loadCustomerProfile(customerId) {
             throw new Error('Invalid customer data received');
         }
         
-        // Get active loan (including overdue)
         const activeLoan = await apiClient(`/api/admin/loans/active?customerId=${customerId}`);
-        
         renderCustomerProfile(response.data.customer, activeLoan.data);
     } catch (error) {
         console.error('Profile load error:', error);
@@ -707,8 +922,6 @@ async function loadCustomerProfile(customerId) {
 
 function renderCustomerProfile(customer, activeLoan) {
     const profileSection = document.getElementById('customer-profile-section');
-    
-    // Safely handle currentLoanBalance (default to 0 if undefined)
     const currentBalance = customer.currentLoanBalance || 0;
     const availableCredit = customer.maxLoanLimit - currentBalance;
     
@@ -743,7 +956,6 @@ function renderCustomerProfile(customer, activeLoan) {
             </div>
         </div>`;
         
-    // Add active loan section if exists
     if (activeLoan) {
         const daysRemaining = calculateDaysRemaining(activeLoan.dueDate);
         const isOverdue = daysRemaining < 0;
@@ -834,29 +1046,17 @@ function renderCustomerProfile(customer, activeLoan) {
                 <div class="spinner"></div>
             </div>
         </div>
+        
+        <div class="profile-section">
+            <button class="luxury-btn" onclick="window.open('/profile.html?adminView=true&userId=${customer._id}', '_blank')" 
+              style="margin-top: 15px; background: var(--blue)">
+              <i class="fas fa-user-secret"></i> VIEW AS CUSTOMER
+            </button>
+        </div>
     </div>`;
     
     profileSection.innerHTML = profileHTML;
-    
-    // Load customer's loan history
     loadCustomerLoans(customer._id);
-}
-
-// Helper functions
-function calculateDaysRemaining(dueDate) {
-    const oneDay = 24 * 60 * 60 * 1000; // hours*minutes*seconds*milliseconds
-    const today = new Date();
-    const due = new Date(dueDate);
-    return Math.round((due - today) / oneDay);
-}
-
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    const day = date.getDate();
-    const month = date.toLocaleString('en-US', { month: 'short' });
-    const year = date.getFullYear();
-    
-    return `${day}/${month}/${year}`;
 }
 
 async function loadCustomerLoans(customerId) {
@@ -919,158 +1119,38 @@ function renderCustomerLoans(loans) {
     </table>`;
 }
 
-// ==================== BULK LIMIT UPDATE ====================
-async function processBulkLimits() {
-    const fileInput = document.getElementById('bulkLimitFile');
-    const resultDiv = document.getElementById('bulkUpdateResult');
-    
-    if (!fileInput.files.length) {
-        showError('Please select a CSV file', resultDiv);
-        return;
-    }
-
-    try {
-        showLoading(resultDiv);
-        debugLog('Processing bulk limits...');
-        const file = fileInput.files[0];
-        const csvData = await readCSVFile(file);
-        
-        if (!csvData.length) {
-            throw new Error('CSV file is empty or invalid');
-        }
-
-        const response = await apiClient(
-            '/api/admin/customers/bulk-limit',
-            'PUT',
-            { updates: csvData }
-        );
-
-        if (response.success) {
-            showSuccess(`Successfully updated ${response.data.updatedCount} customer limits`, resultDiv);
-            
-            // Notify users of limit updates
-            if (response.data.updatedCount > 0) {
-                response.data.updatedCustomers.forEach(customer => {
-                    socket.emit('limitUpdated', {
-                        userId: customer._id,
-                        newLimit: customer.maxLoanLimit
-                    });
-                });
-                debugLog(`Emitted limitUpdated for ${response.data.updatedCount} customers`);
-            }
-        } else {
-            showError('Bulk update failed: ' + (response.error || 'Unknown error'), resultDiv);
-        }
-    } catch (error) {
-        debugLog(`Bulk update failed: ${error.message}`);
-        showError('Bulk update failed: ' + error.message, resultDiv);
-    }
-}
-
-function readCSVFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        
-        reader.onload = (event) => {
-            try {
-                const content = event.target.result;
-                const lines = content.split('\n').filter(line => line.trim() !== '');
-                
-                if (lines.length < 2) {
-                    reject(new Error('CSV must contain at least one data row'));
-                    return;
-                }
-                
-                const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-                const data = [];
-                
-                for (let i = 1; i < lines.length; i++) {
-                    const values = lines[i].split(',');
-                    if (values.length !== headers.length) continue;
-                    
-                    const entry = {};
-                    for (let j = 0; j < headers.length; j++) {
-                        entry[headers[j]] = values[j].trim();
-                    }
-                    data.push(entry);
-                }
-                
-                resolve(data);
-            } catch (error) {
-                reject(error);
-            }
-        };
-        
-        reader.onerror = () => {
-            reject(new Error('Error reading file'));
-        };
-        
-        reader.readAsText(file);
-    });
-}
-
 // ==================== LOAN MANAGEMENT ====================
 async function showLoans(status = 'pending', page = 1) {
-    // Update state - NEWLY ADDED
     currentView = 'loans';
     
     try {
         showLoading('loans');
         debugLog(`Loading ${status} loans, page ${page}`);
         
-        // Modified status handling to explicitly exclude rejected loans for active/defaulted view
-        const statusParam = typeof status === 'string' ? 
-            (status === 'active' ? 'active,defaulted' : status) : 
-            'pending';
-        
-        // Add rejected=false parameter for active/defaulted loans
-        const additionalParams = status === 'active' ? '&rejected=false' : '';
+        // Always include defaulted loans in active view
+        const statusParam = status === 'active' ? 'active,defaulted' : status;
         
         const response = await apiClient(
-            `/api/admin/loan-applications?status=${encodeURIComponent(statusParam)}${additionalParams}&page=${page}&limit=20`
+            `/api/admin/loan-applications?status=${encodeURIComponent(statusParam)}&page=${page}&limit=20`
         );
         
-        // Filter out any rejected loans that might have slipped through (client-side safeguard)
-        const filteredApplications = status === 'active' 
-            ? (response.applications || []).filter(app => app.status !== 'rejected')
-            : response.applications || [];
+        // Don't filter anything - show all loans from the server
+        const loansToDisplay = response.applications || [];
         
         if (status === 'active') {
-            displayActiveLoans(filteredApplications);
+            displayActiveLoans(loansToDisplay);
         } else {
-            displayLoans(filteredApplications, status, response.totalPages, page);
+            displayLoans(loansToDisplay, status, response.totalPages, page);
         }
     } catch (error) {
         debugLog(`Failed to load ${status} loans: ${error.message}`);
-        
-        // Enhanced error display with retry button
-        const errorHtml = `
-            <div class="error-container">
-                <i class="fas fa-exclamation-triangle"></i>
-                <div>
-                    <p>Failed to load ${status} loans</p>
-                    <p class="error-detail">${error.message}</p>
-                    <button onclick="showLoans('${status}', ${page})" class="retry-btn">
-                        <i class="fas fa-sync-alt"></i> Try Again
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        const gridContainer = document.getElementById('loans-grid-container');
-        const tableContainer = document.getElementById('loans-table-container');
-        
-        if (gridContainer) gridContainer.innerHTML = errorHtml;
-        if (tableContainer) tableContainer.innerHTML = errorHtml;
-        
-        showNotification(`Failed to load ${status} loans`, 'error');
+        showError(`Failed to load ${status} loans: ${error.message}`);
     } finally {
         hideLoading('loans');
     }
 }
-// Display active loans in card layout
+
 function displayActiveLoans(loans) {
-    // Hide table container, show grid container
     document.getElementById('loans-table-container').style.display = 'none';
     const gridContainer = document.getElementById('loans-grid-container');
     const grid = document.getElementById('loans-grid');
@@ -1094,28 +1174,25 @@ function displayActiveLoans(loans) {
     document.getElementById('loans-section').classList.remove('hidden');
 }
 
-// ==================== ENHANCED LOAN CARD DISPLAY ====================
 function createLoanCard(loan) {
-    if (!loan?.dueDate) return ''; // Null check
+    if (!loan?.dueDate) return '';
     
-    // Calculate time remaining with precise calculation
     const now = new Date();
     const dueDate = new Date(loan.dueDate);
     const timeRemaining = dueDate - now;
     const daysRemaining = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
-    const hoursRemaining = Math.floor((timeRemaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     
-    // Calculate financials with null checks
     const principal = loan.principal || loan.amount || 0;
-    const totalAmount = loan.totalAmount || principal; // Default to principal if total not specified
+    const totalAmount = loan.totalAmount || principal;
     const amountPaid = loan.amountPaid || 0;
     const balance = totalAmount - amountPaid;
     
-    // Determine status and styling
-    let statusText, statusClass, urgencyBadge = '';
+    // Only consider completed if status is explicitly 'completed' or balance is <= 0
     const isCompleted = loan.status === 'completed' || balance <= 0;
-    const isOverdue = daysRemaining < 0 && !isCompleted;
+    const isOverdue = loan.status === 'defaulted' || (daysRemaining < 0 && !isCompleted);
     const isDueSoon = daysRemaining >= 0 && daysRemaining <= 7 && !isCompleted;
+    
+    let statusText, statusClass, urgencyBadge = '';
     
     if (isCompleted) {
         statusText = 'PAID IN FULL';
@@ -1135,7 +1212,6 @@ function createLoanCard(loan) {
         statusClass = 'status-active';
     }
     
-    // Format currency with fallback
     const formatCurrency = (amount) => `KES ${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     
     return `
@@ -1195,9 +1271,7 @@ function createLoanCard(loan) {
     `;
 }
 
-// Display other loan statuses in table
 function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
-    // Hide grid container, show table container
     document.getElementById('loans-grid-container').style.display = 'none';
     const tableContainer = document.getElementById('loans-table-container');
     const tableBody = document.getElementById('loans-table-body');
@@ -1252,7 +1326,6 @@ function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
         `;
     }).join('') : '<tr><td colspan="6">No loans found</td></tr>';
     
-    // Add pagination controls
     if (totalPages > 1) {
         const pagination = document.createElement('div');
         pagination.className = 'pagination';
@@ -1266,7 +1339,6 @@ function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
             pagination.appendChild(pageBtn);
         }
         
-        // Remove existing pagination
         const existingPagination = tableContainer.querySelector('.pagination');
         if (existingPagination) existingPagination.remove();
         
@@ -1277,12 +1349,6 @@ function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
     document.getElementById('loans-section').classList.remove('hidden');
 }
 
-function hideLoans() {
-    document.getElementById('loans-section').classList.add('hidden');
-    document.getElementById('admin-grid').classList.remove('hidden');
-}
-
-// ==================== UPDATED LOAN DETAILS ====================
 async function showLoanDetails(loanId) {
   currentLoanId = loanId;
   const modal = document.getElementById('loanDetailsModal');
@@ -1292,7 +1358,6 @@ async function showLoanDetails(loanId) {
     const response = await apiClient(`/api/admin/loan-applications/${loanId}`);
     const loan = response.data || response.loan;
     
-    // Safe numeric values with validation
     const safePrincipal = isNaN(loan.principal) ? 0 : Number(loan.principal);
     const safeAmount = isNaN(loan.amount) ? 0 : Number(loan.amount);
     const safeInterestAmount = isNaN(loan.interestAmount) ? 0 : Number(loan.interestAmount);
@@ -1301,7 +1366,6 @@ async function showLoanDetails(loanId) {
     const safeTotalAmount = safePrincipal + safeInterestAmount + safeOverdueFees;
     const safeBalance = Math.max(0, safeTotalAmount - safeAmountPaid);
 
-    // Safe repayment history
     const repaymentRows = (loan.repaymentSchedule || []).map(payment => {
       const safePaymentAmount = isNaN(payment.amount) ? 0 : Number(payment.amount);
       const safePaidAmount = isNaN(payment.paidAmount) ? 0 : Number(payment.paidAmount);
@@ -1318,7 +1382,6 @@ async function showLoanDetails(loanId) {
       `;
     }).join('') || '<tr><td colspan="5">No repayment history</td></tr>';
 
-    // Calculate days remaining safely
     const daysRemaining = loan.dueDate ? calculateDaysRemaining(loan.dueDate) : 'N/A';
     const dailyPenalty = safePrincipal * 0.06;
     const maxPaymentAmount = Math.max(0, safeBalance);
@@ -1453,7 +1516,6 @@ async function showLoanDetails(loanId) {
       </div>
     `;
     
-    // Add event listener for force payment button
     const forcePaymentBtn = document.getElementById('force-payment-btn');
     if (forcePaymentBtn) {
       forcePaymentBtn.addEventListener('click', () => {
@@ -1477,57 +1539,101 @@ async function showLoanDetails(loanId) {
   }
 }
 
-function calculateDaysRemaining(dueDate) {
-  if (!dueDate) return 'N/A';
-  try {
-    const due = new Date(dueDate);
-    const now = new Date();
-    const diff = due - now;
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days > 0 ? days : 'Overdue';
-  } catch (error) {
-    debugLog(`Date calculation error: ${error.message}`);
-    return 'N/A';
-  }
-}
-
-// ==================== FORCE COMPLETE LOAN FUNCTION ====================
 async function forceCompleteLoan(loanId) {
-  try {
-    debugLog(`Forcing completion of loan: ${loanId}`);
-    const response = await apiClient(
-      `/api/admin/loan-applications/${loanId}/force-complete`,
-      'PATCH'
-    );
-    
-    if (response.success) {
-      showNotification('Loan marked as completed!', 'success');
-      
-      // Notify user
-      if (response.data?.userId) {
-        socket.emit('loanStatusUpdate', {
-          userId: response.data.userId,
-          loanId: loanId,
-          newStatus: 'completed'
-        });
-        debugLog(`Emitted loanStatusUpdate to user ${response.data.userId}`);
-      }
-      
-      // Refresh views
-      showLoans('active');
-      showPendingPayments();
-      closeModal('loanDetailsModal');
+    try {
+        debugLog(`Forcing completion of loan: ${loanId}`);
+        
+        // First confirm with admin
+        const confirmed = confirm('Are you sure you want to mark this loan as completed? This action cannot be undone.');
+        if (!confirmed) {
+            debugLog('Loan completion cancelled by admin');
+            return;
+        }
+
+        showLoading('loanDetailsModal');
+        const response = await apiClient(
+            `/api/admin/loan-applications/${loanId}/force-complete`,
+            'PATCH',
+            { adminId: currentAdmin._id }  // Track which admin performed the action
+        );
+
+        if (response.success) {
+            const notificationMsg = `Loan #${loanId.substring(0, 8)} marked as completed by ${currentAdmin.username}`;
+            showNotification(notificationMsg, 'success');
+            debugLog(notificationMsg);
+            
+            // Refresh all relevant views
+            const refreshActions = [
+                showLoans('active'),
+                showPendingPayments()
+            ];
+            
+            // Refresh customer profile if currently viewing it
+            if (currentCustomerId) {
+                refreshActions.push(loadCustomerProfile(currentCustomerId));
+            }
+            
+            await Promise.all(refreshActions);
+            
+            // Notify user and other admins
+            if (response.data?.userId) {
+                socket.emit('loanStatusUpdate', {
+                    loanId: loanId,
+                    userId: response.data.userId,
+                    newStatus: 'completed',
+                    adminName: currentAdmin.username,
+                    timestamp: new Date().toISOString(),
+                    signature: createEventSignature(`loanComplete-${loanId}`)
+                });
+                
+                socket.emit('adminNotification', {
+                    type: 'loan-completed',
+                    message: `Loan ${loanId.substring(0, 8)} force-completed by ${currentAdmin.username}`,
+                    loanId: loanId,
+                    userId: response.data.userId,
+                    timestamp: new Date().toISOString(),
+                    signature: createEventSignature(`loanNotification-${loanId}`)
+                });
+            }
+            
+            closeModal('loanDetailsModal');
+        } else {
+            throw new Error(response.message || 'Failed to complete loan');
+        }
+    } catch (error) {
+        debugLog(`Failed to force complete loan: ${error.message}`);
+        showError(`Failed to mark loan as completed: ${error.message}`, 'loanDetailsModal');
+        
+        // Specific error handling
+        if (error.message.includes('already completed')) {
+            showLoans('active'); // Refresh view if loan was already completed
+        }
+    } finally {
+        hideLoading('loanDetailsModal');
     }
-  } catch (error) {
-    debugLog(`Failed to force complete loan: ${error.message}`);
-    showError('Failed to mark loan as completed: ' + error.message);
-  }
 }
 
 function showApprovalTerms(loanId) {
     currentLoanId = loanId;
-    document.getElementById('approvalTermsModal').style.display = 'block';
+    const modal = document.getElementById('approvalTermsModal');
+    
+    // Reset form fields
+    document.getElementById('interestRate').value = '15'; // Default interest
+    document.getElementById('repaymentPeriod').value = '30'; // Default 30 days
+    document.getElementById('adminNotes').value = '';
+    
+    // Display modal with animation
+    modal.style.display = 'block';
+    setTimeout(() => {
+        modal.classList.add('modal-show');
+    }, 10);
+    
     debugLog(`Showing approval terms for loan: ${loanId}`);
+    
+    // Focus on first field
+    setTimeout(() => {
+        document.getElementById('interestRate').focus();
+    }, 50);
 }
 
 async function confirmLoanApproval() {
@@ -1545,7 +1651,6 @@ async function confirmLoanApproval() {
             { interestRate, repaymentPeriod, adminNotes }
         );
 
-        // Corrected loan amount calculations
         const principal = response.data.loan.amount;
         const interestAmount = principal * (interestRate / 100);
         const totalAmount = principal + interestAmount;
@@ -1554,15 +1659,17 @@ async function confirmLoanApproval() {
         closeModal('approvalTermsModal');
         showLoans('pending');
         
-        // Emit socket event with corrected values
         socket.emit('loanApproved', {
             loanId: currentLoanId,
+            adminId: currentAdmin._id,
             adminName: currentAdmin.username,
             principal: principal,
             interestRate: interestRate,
             totalAmount: totalAmount,
             dueDate: response.data.loan.dueDate,
-            userId: response.data.customer._id
+            userId: response.data.customer._id,
+            timestamp: new Date().toISOString(),
+            signature: createEventSignature(`loanApproved-${currentLoanId}`)
         });
     } catch (error) {
         debugLog(`Loan approval failed: ${error.message}`);
@@ -1582,12 +1689,12 @@ async function processLoan(loanId, action) {
             debugLog(`Rejecting loan ${loanId}: ${reason}`);
             await apiClient(`/api/admin/loan-applications/${loanId}/reject`, 'PATCH', { reason });
             
-            // Notify all admins
             socket.emit('loanUpdate', {
                 loanId,
                 status: 'rejected',
                 adminName: currentAdmin.username,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                signature: createEventSignature(`loanRejected-${loanId}`)
             });
             
             showSuccess('Loan rejected successfully');
@@ -1602,19 +1709,12 @@ async function processLoan(loanId, action) {
 }
 
 // ==================== PAYMENT MANAGEMENT ====================
-
-/**
- * Displays pending payments with pagination
- * @param {number} page - Current page number
- */
 async function showPendingPayments(page = 1) {
-    // Update state - NEWLY ADDED
     currentView = 'payments';
     
     try {
         debugLog('Showing pending payments...');
         
-        // Verify all required DOM elements exist
         const section = document.getElementById('pending-payments-section');
         const tableBody = document.getElementById('pending-payments-table-body');
         const titleElement = document.getElementById('pending-payments-section-title');
@@ -1630,26 +1730,19 @@ async function showPendingPayments(page = 1) {
             throw new Error(response?.message || 'Invalid server response');
         }
 
-        // Clear previous content
         tableBody.innerHTML = '';
-        
-        // Update title with count
         titleElement.textContent = `Pending Payments (${response.payments?.length || 0})`;
         
-        // Handle empty response
         if (!response.payments || response.payments.length === 0) {
             tableBody.innerHTML = '<tr><td colspan="5" class="no-payments">No pending payments found</td></tr>';
         } else {
-            // Render payment rows
             tableBody.innerHTML = renderPaymentRows(response.payments);
             
-            // Add pagination if needed
             if (response.totalPages > 1) {
                 renderPaginationControls(tableBody, response.totalPages, page);
             }
         }
         
-        // Show the section
         document.getElementById('admin-grid').classList.add('hidden');
         section.classList.remove('hidden');
         
@@ -1657,7 +1750,6 @@ async function showPendingPayments(page = 1) {
         debugLog(`Payment display error: ${error.message}`);
         showError(`Failed to load payments: ${error.message}`);
         
-        // Ensure we don't leave the UI in a broken state
         if (tableBody) {
             tableBody.innerHTML = '<tr><td colspan="5" class="error-message">Error loading payments</td></tr>';
         }
@@ -1665,78 +1757,7 @@ async function showPendingPayments(page = 1) {
         hideLoading('pending-payments');
     }
 }
-/**
- * Renders pending payments table
- * @param {Array} payments - Array of payment objects
- * @param {number} totalPages - Total number of pages
- * @param {number} currentPage - Current page number
- */
-function displayPendingPayments(payments, totalPages = 1, currentPage = 1) {
-    try {
-        debugLog('Attempting to display payments...');
-        
-        const tableBody = document.getElementById('pending-payments-table-body');
-        const titleElement = document.getElementById('pending-payments-section-title');
-        const sectionElement = document.getElementById('pending-payments-section');
-        
-        if (!tableBody || !titleElement || !sectionElement) {
-            const missingElements = [];
-            if (!tableBody) missingElements.push('tableBody');
-            if (!titleElement) missingElements.push('titleElement');
-            if (!sectionElement) missingElements.push('sectionElement');
-            
-            debugLog(`Missing DOM elements: ${missingElements.join(', ')}`);
-            throw new Error(`Required DOM elements not found: ${missingElements.join(', ')}`);
-        }
-        
-        debugLog(`Rendering ${payments.length} payments`);
-        const title = `Pending Payments (${payments.length})`;
-        titleElement.textContent = title;
-        
-        tableBody.innerHTML = payments.length ? payments.map(payment => {
-            const customerName = payment.userId?.fullName || 'Unknown';
-            const customerId = payment.userId?._id || '';
-            const amount = payment.amount ? `KES ${payment.amount.toLocaleString()}` : 'KES 0';
-            const reference = payment.reference || 'N/A';
-            const date = payment.createdAt ? formatDate(payment.createdAt) : 'N/A';
-            
-            return `
-                <tr data-payment-id="${payment._id}">
-                    <td>
-                        <div class="customer-link" onclick="viewCustomerProfile('${customerId}')">
-                            <i class="fas fa-user"></i> ${customerName}
-                        </div>
-                    </td>
-                    <td>${amount}</td>
-                    <td>${reference}</td>
-                    <td>${date}</td>
-                    <td>
-                        <button class="action-btn approve-btn" onclick="approvePayment('${payment._id}')">
-                            APPROVE
-                        </button>
-                        <button class="action-btn reject-btn" onclick="rejectPayment('${payment._id}')">
-                            REJECT
-                        </button>
-                    </td>
-                </tr>
-            `;
-        }).join('') : '<tr><td colspan="5">No pending payments</td></tr>';
-        
-        if (totalPages > 1) {
-            renderPaginationControls(tableBody, totalPages, currentPage);
-        }
-        
-        document.getElementById('admin-grid').classList.add('hidden');
-        sectionElement.classList.remove('hidden');
-        debugLog('Payments displayed successfully');
-    } catch (error) {
-        debugLog(`Error displaying payments: ${error.message}`);
-        showError(`Failed to display payments: ${error.message}`);
-    }
-}
-/**
- * Renders pagination controls
- */
+
 function renderPaymentRows(payments) {
     if (!payments || !Array.isArray(payments)) return '';
     
@@ -1759,28 +1780,25 @@ function renderPaymentRows(payments) {
                 <td>${date}</td>
                 <td>
                     <button class="action-btn approve-btn" onclick="approvePayment('${payment._id}')">
-                        APPROVE
+                        <span class="btn-text">APPROVE</span>
+                        <span class="btn-spinner hidden"><i class="fas fa-spinner fa-spin"></i></span>
                     </button>
                     <button class="action-btn reject-btn" onclick="rejectPayment('${payment._id}')">
-                        REJECT
+                        <span class="btn-text">REJECT</span>
+                        <span class="btn-spinner hidden"><i class="fas fa-spinner fa-spin"></i></span>
                     </button>
                 </td>
             </tr>
         `;
     }).join('');
 }
-/**
- * Handles payment approval with enhanced transaction handling
- * @param {string} paymentId - ID of payment to approve
- */
+
 async function approvePayment(paymentId) {
     if (!confirm('Are you sure you want to approve this payment?\n\nThis action cannot be undone.')) return;
     
     const row = document.querySelector(`tr[data-payment-id="${paymentId}"]`);
-    const approveBtn = document.getElementById(`approve-btn-${paymentId}`);
-    const tableBody = document.getElementById('pending-payments-table-body');
+    const approveBtn = row?.querySelector('.approve-btn');
     
-    // Optimistic UI update
     if (row) {
         row.classList.add('processing');
         row.querySelectorAll('button').forEach(btn => btn.disabled = true);
@@ -1793,28 +1811,28 @@ async function approvePayment(paymentId) {
             `/api/admin/payments/${paymentId}/status`,
             'PATCH',
             { status: 'approved' },
-            { timeout: 30000 } // 30 second timeout
+            { timeout: 30000 }
         );
         
         showNotification('Payment approved successfully!', 'success');
         
-        // Complete UI update
         if (row) {
             row.remove();
-            // Add visual feedback for successful approval
-            const successRow = document.createElement('tr');
-            successRow.className = 'success-feedback';
-            successRow.innerHTML = `
-                <td colspan="5">
-                    <i class="fas fa-check-circle"></i> 
-                    Payment approved successfully
-                </td>
-            `;
-            tableBody.prepend(successRow);
-            setTimeout(() => successRow.remove(), 3000);
+            const tableBody = document.getElementById('pending-payments-table-body');
+            if (tableBody) {
+                const successRow = document.createElement('tr');
+                successRow.className = 'success-feedback';
+                successRow.innerHTML = `
+                    <td colspan="5">
+                        <i class="fas fa-check-circle"></i> 
+                        Payment approved successfully
+                    </td>
+                `;
+                tableBody.prepend(successRow);
+                setTimeout(() => successRow.remove(), 3000);
+            }
         }
 
-        // Handle successful response
         if (response.data && response.data.isFullyPaid) {
             debugLog(`Loan ${response.data.loanId} fully paid`);
             showNotification('Loan fully paid!', 'success');
@@ -1823,15 +1841,12 @@ async function approvePayment(paymentId) {
     } catch (error) {
         console.error('Approval failed:', error);
         
-        // Handle transaction errors specifically
         if (error.code === 251 || error.code === 'NoSuchTransaction') {
             showNotification('Transaction error. Please try approving again.', 'error', 5000);
         } 
-        // Handle timeout errors
         else if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
             showNotification('Request timed out. Please check your connection and try again.', 'error', 5000);
         }
-        // Handle other specific errors
         else if (error.code === 'INVALID_PAYMENT_STATUS') {
             showNotification(`Payment cannot be approved: ${error.message}`, 'error');
         } else if (error.code === 'PAYMENT_NOT_FOUND') {
@@ -1842,11 +1857,11 @@ async function approvePayment(paymentId) {
             showNotification(`Failed to approve payment: ${error.message || 'Please try again'}`, 'error');
         }
         
-        // Revert UI if error occurs
         if (row) {
             row.classList.remove('processing');
             row.querySelectorAll('button').forEach(btn => btn.disabled = false);
-            tableBody.appendChild(row);
+            const tableBody = document.getElementById('pending-payments-table-body');
+            if (tableBody) tableBody.appendChild(row);
         }
         updatePendingCount(1);
     } finally {
@@ -1854,85 +1869,11 @@ async function approvePayment(paymentId) {
     }
 }
 
-/**
- * Handles payment approval with token refresh capability
- * @param {string} paymentId - ID of payment to approve
- */
-async function confirmLoanApproval() {
-    const interestRate = parseFloat(document.getElementById('interestRate').value);
-    const repaymentPeriod = parseInt(document.getElementById('repaymentPeriod').value);
-    const adminNotes = document.getElementById('adminNotes').value;
-
-    if (!currentLoanId || isNaN(interestRate) || isNaN(repaymentPeriod)) {
-        showError('Please fill all required fields with valid values');
-        return;
-    }
-
-    try {
-        showLoading('approvalTermsModal');
-        debugLog(`Approving loan ${currentLoanId} with terms: ${interestRate}%, ${repaymentPeriod} days`);
-        
-        const response = await apiClient(
-            `/api/admin/loan-applications/${currentLoanId}/approve`,
-            'PATCH',
-            { interestRate, repaymentPeriod, adminNotes }
-        );
-
-        if (response.success) {
-            showSuccess('Loan approved successfully!');
-            closeModal('approvalTermsModal');
-            
-            // Refresh the loans view
-            showLoans('pending');
-            
-            // Emit socket event
-            socket.emit('loanApproved', {
-                loanId: currentLoanId,
-                adminName: currentAdmin.username,
-                userId: response.data?.userId,
-                interestRate,
-                repaymentPeriod
-            });
-        } else {
-            throw new Error(response.message || 'Failed to approve loan');
-        }
-    } catch (error) {
-        debugLog(`Loan approval failed: ${error.message}`);
-        showError(error.message || 'Failed to approve loan. Please try again.', 'approvalTermsModal');
-    } finally {
-        hideLoading('approvalTermsModal');
-    }
-}
-
-/**
- * Attempts to approve payment with error handling
- */
-async function attemptPaymentApproval(paymentId) {
-    try {
-        const response = await apiClient(
-            `/api/admin/payments/${paymentId}/status`,
-            'PATCH',
-            { status: 'approved' },
-            { timeout: 30000 }
-        );
-        return response;
-    } catch (error) {
-        if (error.response?.data?.code === 'TokenExpiredError') {
-            return { error: 'TokenExpired', message: error.message };
-        }
-        throw error;
-    }
-}
-
-/**
- * Handles payment rejection with token refresh capability
- * @param {string} paymentId - ID of payment to reject
- */
 async function rejectPayment(paymentId) {
     let reason;
     while (true) {
         reason = prompt('Please enter the rejection reason (min 5 characters, max 500 characters):');
-        if (reason === null) return; // User cancelled
+        if (reason === null) return;
         
         if (!reason || reason.trim().length < 5) {
             showNotification('Reason must be at least 5 characters', 'error');
@@ -1946,10 +1887,9 @@ async function rejectPayment(paymentId) {
     }
 
     const row = document.querySelector(`tr[data-payment-id="${paymentId}"]`);
-    const rejectBtn = document.getElementById(`reject-btn-${paymentId}`);
+    const rejectBtn = row?.querySelector('.reject-btn');
     const tableBody = document.getElementById('pending-payments-table-body');
     
-    // Optimistic UI update
     if (row) {
         row.classList.add('processing');
         row.querySelectorAll('button').forEach(btn => btn.disabled = true);
@@ -1958,10 +1898,8 @@ async function rejectPayment(paymentId) {
     updatePendingCount(-1);
 
     try {
-        // First attempt
         let response = await attemptPaymentRejection(paymentId, reason);
         
-        // If token expired, refresh and try again
         if (response?.error === 'TokenExpired') {
             await refreshAdminToken();
             response = await attemptPaymentRejection(paymentId, reason);
@@ -1973,10 +1911,8 @@ async function rejectPayment(paymentId) {
 
         showNotification('Payment rejected successfully', 'warning');
         
-        // Complete UI update
         if (row) {
             row.remove();
-            // Add visual feedback for successful rejection
             const feedbackRow = document.createElement('tr');
             feedbackRow.className = 'warning-feedback';
             feedbackRow.innerHTML = `
@@ -1997,9 +1933,6 @@ async function rejectPayment(paymentId) {
     }
 }
 
-/**
- * Attempts to reject payment with error handling
- */
 async function attemptPaymentRejection(paymentId, reason) {
     try {
         const response = await apiClient(
@@ -2010,30 +1943,23 @@ async function attemptPaymentRejection(paymentId, reason) {
         );
         return response;
     } catch (error) {
-        if (error.response?.data?.code === 'TokenExpiredError') {
+        if (error.response?.data?.code === 'TokenExpiredError' || error.message.includes('jwt expired')) {
             return { error: 'TokenExpired', message: error.message };
         }
         throw error;
     }
 }
 
-/**
- * Handles payment operation errors consistently
- */
 function handlePaymentError(error, row) {
-    // Handle token expiration
     if (error.response?.data?.code === 'TokenExpiredError' || error.message.includes('jwt expired')) {
         showNotification('Session expired. Please refresh the page and log in again.', 'error', 5000);
     }
-    // Handle transaction errors
     else if (error.code === 251 || error.code === 'NoSuchTransaction') {
         showNotification('Transaction error. Please try the operation again.', 'error', 5000);
     }
-    // Handle timeout errors
     else if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
         showNotification('Request timed out. Please check your connection and try again.', 'error', 5000);
     }
-    // Handle other specific errors
     else if (error.code === 'INVALID_PAYMENT_STATUS') {
         showNotification(`Payment cannot be processed: ${error.message}`, 'error');
     } else if (error.code === 'PAYMENT_NOT_FOUND') {
@@ -2044,44 +1970,57 @@ function handlePaymentError(error, row) {
         showNotification(`Operation failed: ${error.message || 'Please try again'}`, 'error');
     }
     
-    // Revert UI if error occurs
     if (row) {
         const tableBody = document.getElementById('pending-payments-table-body');
         row.classList.remove('processing');
         row.querySelectorAll('button').forEach(btn => btn.disabled = false);
-        tableBody.appendChild(row);
+        if (tableBody) tableBody.appendChild(row);
     }
     updatePendingCount(1);
 }
 
-/**
- * Refreshes admin token silently
- */
 async function refreshAdminToken() {
     try {
-        const response = await apiClient('/api/admin/refresh-token', 'POST');
-        if (response.token) {
-            localStorage.setItem('adminToken', response.token);
-            return true;
+        const refreshToken = localStorage.getItem('adminRefreshToken');
+        if (!refreshToken) {
+            throw new Error('No refresh token available');
         }
+
+        const response = await fetch(`${API_BASE_URL}/api/admin/refresh-token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to refresh token');
+        }
+
+        const { token, refreshToken: newRefreshToken } = await response.json();
+        localStorage.setItem('adminToken', token);
+        localStorage.setItem('adminRefreshToken', newRefreshToken);
+        
+        // Update socket auth token
+        if (socket) {
+            socket.auth.token = token;
+            if (!socket.connected) socket.connect();
+        }
+        
+        return true;
     } catch (error) {
-        console.error('Token refresh failed:', error);
-        // Force logout if refresh fails
-        localStorage.removeItem('adminToken');
-        window.location.href = '/admin/login';
+        debugLog(`Token refresh failed: ${error.message}`);
+        logout();
+        throw error;
     }
-    return false;
 }
 
-/**
- * Toggles button loading state
- */
 function toggleButtonLoading(button, isLoading) {
     if (button) {
         button.disabled = isLoading;
-        button.querySelector('.btn-text').classList.toggle('hidden', isLoading);
-        const spinner = button.querySelector('.btn-spinner');
-        spinner.classList.toggle('hidden', !isLoading);
+        const btnText = button.querySelector('.btn-text');
+        const btnSpinner = button.querySelector('.btn-spinner');
+        if (btnText) btnText.classList.toggle('hidden', isLoading);
+        if (btnSpinner) btnSpinner.classList.toggle('hidden', !isLoading);
         
         const row = button.closest('tr');
         if (row) {
@@ -2090,9 +2029,6 @@ function toggleButtonLoading(button, isLoading) {
     }
 }
 
-/**
- * Updates the pending payments count
- */
 function updatePendingCount(change) {
     const title = document.getElementById('pending-payments-section-title');
     if (title) {
@@ -2110,100 +2046,6 @@ function updatePendingCount(change) {
     }
 }
 
-// ==================== REPORTING ====================
-async function generateReport() {
-    const reportType = document.getElementById('reportType').value;
-    const startDate = document.getElementById('startDate').value;
-    const endDate = document.getElementById('endDate').value;
-    
-    if (!reportType) {
-        showError('Please select a report type', 'reportModal');
-        return;
-    }
-    
-    let warningElement = null;
-    const timeoutId = setTimeout(() => {
-        warningElement = showLongOperationWarning();
-    }, 10000);
-
-    try {
-        showLoading('reportModal');
-        debugLog(`Generating report: ${reportType}`);
-        let endpoint = `/api/admin/reports/${reportType}`;
-        
-        // Proper date formatting
-        if (reportType === 'custom' && startDate && endDate) {
-            const formattedStart = new Date(startDate).toISOString().split('T')[0];
-            const formattedEnd = new Date(endDate).toISOString().split('T')[0];
-            endpoint += `?start=${formattedStart}&end=${formattedEnd}`;
-        }
-        
-        const response = await apiClient(endpoint);
-        displayReport(response.data);
-    } catch (error) {
-        debugLog(`Report generation failed: ${error.message}`);
-        showError('Failed to generate report: ' + error.message, 'reportModal');
-    } finally {
-        clearTimeout(timeoutId);
-        if (warningElement) {
-            warningElement.remove();
-        }
-        hideLoading('reportModal');
-    }
-}
-
-function displayReport(reportData) {
-    const reportContent = document.getElementById('reportContent');
-    reportContent.innerHTML = `
-        <div class="report-summary">
-            <h4>${reportData.title || 'Loan Activity Report'}</h4>
-            ${reportData.startDate ? `<p>Period: ${reportData.startDate} to ${reportData.endDate}</p>` : ''}
-            <p>Generated: ${new Date().toLocaleDateString()}</p>
-            
-            ${reportData.totalLoans ? `<p>Total Loans: KES ${reportData.totalLoans.toLocaleString()}</p>` : ''}
-            ${reportData.newCustomers ? `<p>New Customers: ${reportData.newCustomers}</p>` : ''}
-            ${reportData.repaymentsReceived ? `<p>Repayments Received: KES ${reportData.repaymentsReceived.toLocaleString()}</p>` : ''}
-            ${reportData.defaultRate ? `<p>Default Rate: ${reportData.defaultRate}%</p>` : ''}
-        </div>
-        
-        ${reportData.dailyActivity?.length > 0 ? `
-          <h4>Loan Activity</h4>
-          <table class="loan-table">
-              <thead>
-                  <tr>
-                      <th>Date</th>
-                      <th>New Loans</th>
-                      <th>Repayments</th>
-                      <th>Defaults</th>
-                  </tr>
-              </thead>
-              <tbody>
-                  ${reportData.dailyActivity.map(day => `
-                      <tr>
-                          <td>${day.date}</td>
-                          <td>${day.newLoans || '0'}</td>
-                          <td>KES ${day.repayments?.toLocaleString() || '0'}</td>
-                          <td>${day.defaults || '0'}</td>
-                      </tr>
-                  `).join('')}
-              </tbody>
-          </table>
-        ` : '<p>No activity data available</p>'}
-        
-        <div class="report-actions">
-            <button class="luxury-btn" onclick="exportReport()">
-                <i class="fas fa-download"></i> Export to CSV
-            </button>
-        </div>
-    `;
-    
-    document.getElementById('reportModal').style.display = 'block';
-}
-
-function exportReport() {
-    alert('Report exported successfully! This would download a CSV file in a real implementation.');
-}
-
 // ==================== UTILITY FUNCTIONS ====================
 function showLoading(context) {
     const element = document.getElementById(context);
@@ -2211,7 +2053,6 @@ function showLoading(context) {
         element.innerHTML = '<div class="spinner"></div>';
         element.classList.remove('hidden');
         
-        // Add timeout warning after 8 seconds
         setTimeout(() => {
             if (element.querySelector('.spinner')) {
                 const warning = document.createElement('div');
@@ -2229,7 +2070,6 @@ function hideLoading(context) {
     const element = document.getElementById(context);
     if (element) {
         element.innerHTML = '';
-        // Remove any existing warnings
         const warning = element.querySelector('.loading-warning');
         if (warning) warning.remove();
     }
@@ -2281,44 +2121,26 @@ function showNotification(message, type = 'success') {
     debugLog(`Notification shown: ${message}`);
 }
 
-function isOverdue(loan) {
-    return loan.status === 'active' && new Date(loan.dueDate) < new Date();
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) modal.style.display = 'none';
+    debugLog(`Closed modal: ${modalId}`);
 }
 
-function showLongOperationWarning() {
-    const warning = document.createElement('div');
-    warning.className = 'operation-warning';
-    warning.innerHTML = `
-        <div class="warning-content">
-            <p>⏳ This operation may take several seconds...</p>
-            <div class="spinner"></div>
-        </div>
-    `;
-    document.body.appendChild(warning);
-    return warning;
-}
-
-// ==================== IMPROVED BACK TO DASHBOARD FUNCTION ====================
 function backToDashboard() {
     debugLog('Returning to dashboard');
-    
-    // Update state
     currentView = 'dashboard';
     
-    // Hide debug console
     const debugConsole = document.getElementById('debug-console');
     if (debugConsole) {
         debugConsole.style.display = 'none';
-        // Update debug toggle button text
         const debugToggleBtn = document.getElementById('debug-toggle-btn');
         if (debugToggleBtn) {
             debugToggleBtn.innerHTML = '<i class="fas fa-bug"></i> SHOW DEBUG';
         }
-        // Save state in localStorage
         localStorage.setItem('debugConsoleVisible', 'false');
     }
     
-    // Hide all sections with proper z-index handling
     const sectionsToHide = [
         'loans-section',
         'pending-payments-section',
@@ -2329,199 +2151,215 @@ function backToDashboard() {
         const section = document.getElementById(sectionId);
         if (section) {
             section.style.display = 'none';
-            section.style.zIndex = 'auto'; // Reset z-index
+            section.style.zIndex = 'auto';
         }
     });
     
-    // Show main dashboard
     const adminGrid = document.getElementById('admin-grid');
     if (adminGrid) {
-        adminGrid.style.display = 'grid'; // Explicitly set display
+        adminGrid.style.display = 'grid';
         adminGrid.classList.remove('hidden');
     }
     
-    // Reset current views
     currentCustomerId = null;
     currentLoanId = null;
-    
-    // Reload dashboard data
     loadAdminData();
 }
 
-// ==================== UPDATED EVENT LISTENERS ====================
-function setupEventListeners() {
-    debugLog('Setting up event listeners');
-    
-    // Verify critical DOM elements first
-    verifyCriticalElements();
-    
-    // Authentication
-    document.getElementById("login-button")?.addEventListener("click", checkPassword);
-    document.getElementById("username-input")?.addEventListener("keypress", e => {
-        if (e.key === 'Enter') checkPassword();
-    });
-    document.getElementById("password-input")?.addEventListener("keypress", e => {
-        if (e.key === 'Enter') checkPassword();
-    });
+let tokenValidationInterval;
 
-    // Customer management
-    document.getElementById("searchCustomer")?.addEventListener("keypress", e => {
-        if (e.key === 'Enter') searchCustomer();
-    });
-
-    // Reporting
-    document.getElementById("reportType")?.addEventListener("change", () => {
-        const customDateRange = document.getElementById("customDateRange");
-        if (customDateRange) {
-            customDateRange.style.display = 
-                document.getElementById("reportType").value === 'custom' ? 'block' : 'none';
-        }
-    });
-
-    // Bulk operations
-    document.getElementById("bulkLimitFile")?.addEventListener("change", function() {
-        const bulkUpdateResult = document.getElementById("bulkUpdateResult");
-        if (bulkUpdateResult) {
-            bulkUpdateResult.textContent = "";
-        }
-    });
+function logout() {
+    debugLog('Logging out...');
     
-    // Modals
-    document.querySelectorAll('.close-modal').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const modal = btn.closest('.modal');
-            if (modal) {
-                modal.style.display = 'none';
+    // Clear the token validation interval
+    if (tokenValidationInterval) {
+        clearInterval(tokenValidationInterval);
+    }
+    
+    try {
+        localStorage.removeItem("adminToken");
+        localStorage.removeItem("adminRefreshToken");
+        localStorage.removeItem("adminId");
+        
+        const adminKeys = Object.keys(localStorage).filter(key => key.startsWith('admin_'));
+        adminKeys.forEach(key => localStorage.removeItem(key));
+        
+        if (socket?.connected) {
+            try {
+                socket.disconnect();
+                debugLog('Socket disconnected');
+            } catch (socketError) {
+                debugLog('Socket disconnect error:', socketError);
             }
-        });
-    });
+        }
+        
+        currentAdmin = currentCustomerId = currentLoanId = null;
+        
+        const redirectUrl = new URL('/admin.html', window.location.origin);
+        redirectUrl.searchParams.set('logout', 'true');
+        redirectUrl.searchParams.set('t', Date.now());
+        
+        let redirectSuccess = false;
+        try {
+            window.location.assign(redirectUrl.href);
+            redirectSuccess = true;
+        } catch (e) {
+            debugLog(`Primary redirect failed: ${e.message}`);
+        }
+        
+        const fallbackPaths = [
+            '/admin.html',
+            '/admin',
+            '/',
+        ];
+        
+        const fallbackAttempt = (index = 0) => {
+            if (index >= fallbackPaths.length || redirectSuccess) return;
+            
+            try {
+                window.location.href = fallbackPaths[index];
+                redirectSuccess = true;
+            } catch (e) {
+                debugLog(`Fallback ${index} failed: ${e.message}`);
+                setTimeout(() => fallbackAttempt(index + 1), 300 * (index + 1));
+            }
+        };
+        
+        if (!redirectSuccess) {
+            setTimeout(() => fallbackAttempt(), 500);
+        }
+        
+    } catch (error) {
+        console.error('Logout failed:', error);
+        setTimeout(() => {
+            window.location.href = '/';
+        }, 1000);
+    }
+}
+
+function debugLog(message) {
+    const debugContent = document.getElementById('debug-content');
+    if (debugContent) {
+        const entry = document.createElement('div');
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        debugContent.appendChild(entry);
+        debugContent.scrollTop = debugContent.scrollHeight;
+    }
+    console.log(message);
+}
+
+function toggleDebugConsole(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    const debugConsole = document.getElementById('debug-console');
+    const debugToggleBtn = document.getElementById('debug-toggle-btn');
     
-    // Loan approval modal
-    document.getElementById("approvalTermsModal")?.addEventListener("click", function(e) {
-        if (e.target === this) closeModal('approvalTermsModal');
-    });
+    if (!debugConsole || !debugToggleBtn) {
+        console.warn('Debug console elements not found');
+        return;
+    }
+
+    const isVisible = debugConsole.style.display === 'block';
+    debugConsole.style.display = isVisible ? 'none' : 'block';
+    debugConsole.style.zIndex = isVisible ? 'auto' : '10000';
     
-    // Report modal
-    document.getElementById("reportModal")?.addEventListener("click", function(e) {
-        if (e.target === this) closeModal('reportModal');
-    });
+    debugToggleBtn.innerHTML = isVisible 
+        ? '<i class="fas fa-bug"></i> SHOW DEBUG' 
+        : '<i class="fas fa-times"></i> HIDE DEBUG';
+
+    debugLog(`Debug console ${isVisible ? 'hidden' : 'shown'}`);
     
-    // Loan details modal
-    document.getElementById("loanDetailsModal")?.addEventListener("click", function(e) {
-        if (e.target === this) closeModal('loanDetailsModal');
-    });
+    if (!isVisible) {
+        setTimeout(() => {
+            const debugContent = document.getElementById('debug-content');
+            if (debugContent) {
+                debugContent.scrollTop = debugContent.scrollHeight;
+            }
+        }, 100);
+    }
+
+    localStorage.setItem('debugConsoleVisible', !isVisible);
+}
+
+function initDebugConsole() {
+    const debugConsole = document.getElementById('debug-console');
+    const debugToggleBtn = document.getElementById('debug-toggle-btn');
     
-    // Report generation button
-    document.getElementById("generateReportBtn")?.addEventListener("click", generateReport);
+    if (!debugConsole || !debugToggleBtn) return;
+
+    const savedState = localStorage.getItem('debugConsoleVisible') === 'true';
+    debugConsole.style.display = savedState ? 'block' : 'none';
     
-    // Loan navigation buttons - UPDATED WITH CLONE NODE TO PREVENT DUPLICATES
-    document.querySelectorAll('.luxury-btn[data-loan-type]').forEach(btn => {
-        btn.replaceWith(btn.cloneNode(true));
-    });
-    document.querySelectorAll('.luxury-btn[data-loan-type]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const loanType = btn.getAttribute('data-loan-type');
-            currentView = 'loans'; // NEWLY ADDED
-            showLoans(loanType);
-        });
-    });
+    debugToggleBtn.innerHTML = savedState 
+        ? '<i class="fas fa-times"></i> HIDE DEBUG' 
+        : '<i class="fas fa-bug"></i> SHOW DEBUG';
+}
+
+function setupDebugConsole() {
+    initDebugConsole();
     
-    // Pending payments button (with enhanced verification)
-    document.getElementById('pending-payments-btn')?.addEventListener('click', () => {
-        if (verifyPaymentElements()) {
-            currentView = 'payments'; // NEWLY ADDED
-            showPendingPayments();
-        } else {
-            showError('Payment system components not loaded');
+    document.getElementById('debug-toggle-btn')?.addEventListener('click', toggleDebugConsole);
+    
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+            toggleDebugConsole();
         }
     });
     
-    // Back buttons - UPDATED WITH PREVENT DEFAULT
-    document.getElementById('hide-loans-btn')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        debugLog('Hide Loans button clicked');
-        backToDashboard();
-    });
-       
-    // Logout button
-    document.getElementById('logout-btn')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        logout();
-    });
-    
-    // Debug toggle
-    document.getElementById('debug-toggle-btn')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        toggleDebugConsole();
-    });
-
-    // Bulk process button
-    document.getElementById('process-bulk-btn')?.addEventListener('click', processBulkLimits);
-    
-    // Loan approval
-    document.getElementById('confirm-approval-btn')?.addEventListener('click', confirmLoanApproval);
-    
-    // Refresh button
-    document.getElementById('refresh-admin-btn')?.addEventListener('click', async (e) => {
-        e.preventDefault();
-        await refreshAdminPortal();
-    });
+    debugLog('Debug console initialized');
 }
 
-// ==================== DOM VERIFICATION ====================
-function verifyCriticalElements() {
-    debugLog('Verifying critical DOM elements');
-    const checkElements = [
-        'pending-payments-table-body',
-        'pending-payments-section-title',
-        'pending-payments-section',
-        'admin-grid',
-        'login-button',
-        'logout-btn'
-    ];
-    
-    checkElements.forEach(id => {
-        const el = document.getElementById(id);
-        debugLog(`${id} exists: ${!!el}`);
-        if (!el) {
-            console.error(`Missing element: #${id}`);
-            showError(`System error: Missing component #${id}`);
-        }
-    });
-}
-
-function verifyPaymentElements() {
-    const requiredElements = [
-        'pending-payments-table-body',
-        'pending-payments-section-title',
-        'pending-payments-section'
-    ];
-    
-    return requiredElements.every(id => {
-        const exists = !!document.getElementById(id);
-        if (!exists) debugLog(`Payment element missing: #${id}`);
-        return exists;
-    });
+function createEventSignature(eventId) {
+    return btoa(`${eventId}:${currentAdmin._id}:${Date.now()}`);
 }
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
     debugLog('DOM fully loaded');
-    
-    // Verify all elements before setup
-    verifyCriticalElements();
-    
-    // Setup event listeners
+    setupDebugConsole();
     setupEventListeners();
     
-    // Load data if already on admin page
-    if (document.getElementById('admin-content')?.classList.contains('hidden') === false) {
-        loadAdminData();
-    }
+    // Check authentication status and validate token on load
+    validateTokenOnLoad().then(() => {
+        if (document.getElementById('admin-content')?.classList.contains('hidden') === false) {
+            loadAdminData();
+        }
+    }).catch(() => {
+        showLoginContent();
+    });
 });
 
-// ==================== UI STATE MANAGEMENT ====================
+async function validateTokenOnLoad() {
+    const token = localStorage.getItem("adminToken");
+    const refreshToken = localStorage.getItem("adminRefreshToken");
+    
+    if (!token || !refreshToken) {
+        showLoginContent();
+        return;
+    }
+
+    try {
+        // Check if token is about to expire (within 10 minutes)
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const expiresIn = (payload.exp * 1000) - Date.now();
+        
+        if (expiresIn < 600000) { // 10 minutes in milliseconds
+            debugLog('Token about to expire - refreshing');
+            await refreshAdminToken();
+        }
+        
+        // Validate the token with the server
+        await checkAuthStatus();
+    } catch (error) {
+        debugLog(`Token validation error: ${error.message}`);
+        showLoginContent();
+        throw error;
+    }
+}
+
 function showLoginContent() {
     const loginContainer = document.getElementById("login-container");
     const adminContent = document.getElementById("admin-content");
@@ -2529,6 +2367,11 @@ function showLoginContent() {
     if (loginContainer) loginContainer.classList.remove("hidden");
     if (adminContent) adminContent.classList.add("hidden");
     debugLog('Showing login content');
+    
+    // Clear any existing token validation interval
+    if (window.tokenValidationInterval) {
+        clearInterval(window.tokenValidationInterval);
+    }
 }
 
 function showAdminContent() {
@@ -2548,200 +2391,157 @@ function showAdminContent() {
         adminContent.classList.remove("hidden");
         debugLog('Showed admin content');
         loadAdminData();
+        
+        // Start token validation after successful login
+        startTokenValidationInterval();
     } else {
         debugLog('Admin content container not found');
     }
 }
 
-function closeModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) modal.style.display = 'none';
-    debugLog(`Closed modal: ${modalId}`);
-}
-
-function logout() {
-  debugLog('Logging out...');
-  
-  try {
-    // Clear all auth-related data (more specific than localStorage.clear())
-    localStorage.removeItem("adminToken");
-    localStorage.removeItem("adminRefreshToken");
-    localStorage.removeItem("adminId");
-    
-    // Clear any other admin-related storage if needed
-    const adminKeys = Object.keys(localStorage).filter(key => key.startsWith('admin_'));
-    adminKeys.forEach(key => localStorage.removeItem(key));
-    
-    // Disconnect socket with better error handling
-    if (socket?.connected) {
-      try {
-        socket.disconnect();
-        debugLog('Socket disconnected');
-      } catch (socketError) {
-        debugLog('Socket disconnect error:', socketError);
-      }
+function startTokenValidationInterval() {
+    // Clear any existing interval to prevent duplicates
+    if (window.tokenValidationInterval) {
+        clearInterval(window.tokenValidationInterval);
     }
     
-    // Reset state
-    currentAdmin = currentCustomerId = currentLoanId = null;
-    
-    // Main redirect attempt with enhanced URL handling
-    const redirectUrl = new URL('/admin.html', window.location.origin);
-    redirectUrl.searchParams.set('logout', 'true');
-    redirectUrl.searchParams.set('t', Date.now()); // Cache busting
-    
-    // Primary redirect with fallback mechanism
-    let redirectSuccess = false;
-    try {
-      window.location.assign(redirectUrl.href);
-      redirectSuccess = true;
-    } catch (e) {
-      debugLog(`Primary redirect failed: ${e.message}`);
-    }
-    
-    // Fallback sequence with timing
-    const fallbackPaths = [
-      '/admin.html',
-      '/admin',
-      '/',
-    ];
-    
-    const fallbackAttempt = (index = 0) => {
-      if (index >= fallbackPaths.length || redirectSuccess) return;
-      
-      try {
-        window.location.href = fallbackPaths[index];
-        redirectSuccess = true;
-      } catch (e) {
-        debugLog(`Fallback ${index} failed: ${e.message}`);
-        setTimeout(() => fallbackAttempt(index + 1), 300 * (index + 1));
-      }
-    };
-    
-    if (!redirectSuccess) {
-      setTimeout(() => fallbackAttempt(), 500);
-    }
-    
-  } catch (error) {
-    console.error('Logout failed:', error);
-    // Ultimate fallback
-    setTimeout(() => {
-      window.location.href = '/';
-    }, 1000);
-  }
-}
-
-// ==================== DEBUG LOGGER ====================
-function debugLog(message) {
-    const debugContent = document.getElementById('debug-content');
-    if (debugContent) {
-        const entry = document.createElement('div');
-        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-        debugContent.appendChild(entry);
-        debugContent.scrollTop = debugContent.scrollHeight;
-    }
-    console.log(message);
-}
-
-// ==================== DEBUG CONSOLE TOGGLE ====================
-function toggleDebugConsole(event) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-
-    const debugConsole = document.getElementById('debug-console');
-    const debugToggleBtn = document.getElementById('debug-toggle-btn');
-    
-    if (!debugConsole || !debugToggleBtn) {
-        console.warn('Debug console elements not found');
-        return;
-    }
-
-    const isVisible = debugConsole.style.display === 'block';
-    debugConsole.style.display = isVisible ? 'none' : 'block';
-    debugConsole.style.zIndex = isVisible ? 'auto' : '10000'; // Ensure proper z-index
-    
-    // Update button text and icon
-    debugToggleBtn.innerHTML = isVisible 
-        ? '<i class="fas fa-bug"></i> SHOW DEBUG' 
-        : '<i class="fas fa-times"></i> HIDE DEBUG';
-
-    debugLog(`Debug console ${isVisible ? 'hidden' : 'shown'}`);
-    
-    // Scroll to bottom when shown
-    if (!isVisible) {
-        setTimeout(() => {
-            const debugContent = document.getElementById('debug-content');
-            if (debugContent) {
-                debugContent.scrollTop = debugContent.scrollHeight;
+    // Check token every 5 minutes
+    window.tokenValidationInterval = setInterval(async () => {
+        try {
+            const token = localStorage.getItem("adminToken");
+            if (!token) {
+                debugLog('No token found during periodic check');
+                return;
             }
-        }, 100);
+            
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const expiresIn = (payload.exp * 1000) - Date.now();
+            
+            debugLog(`Token expires in ${Math.floor(expiresIn / 60000)} minutes`);
+            
+            if (expiresIn < 600000) { // 10 minutes remaining
+                debugLog('Token nearing expiration - refreshing');
+                await refreshAdminToken();
+                
+                // Show subtle notification to user
+                showNotification('Session automatically renewed', 'info');
+            }
+        } catch (error) {
+            debugLog(`Periodic token check failed: ${error.message}`);
+            
+            // If refresh fails, log the user out
+            if (error.message.includes('Failed to refresh')) {
+                showNotification('Session expired. Please login again.', 'error');
+                setTimeout(logout, 3000);
+            }
+        }
+    }, 300000); // 5 minutes
+}
+
+// Call this after successful login
+function onSuccessfulLogin() {
+    showAdminContent();
+    startTokenValidationInterval();
+    
+    // Update socket connection with new token
+    const token = localStorage.getItem('adminToken');
+    if (socket) {
+        socket.auth.token = token;
+        if (!socket.connected) socket.connect();
     }
-
-    // Save state in localStorage
-    localStorage.setItem('debugConsoleVisible', !isVisible);
 }
 
-// ==================== INITIALIZE DEBUG CONSOLE ====================
-function initDebugConsole() {
-    const debugConsole = document.getElementById('debug-console');
-    const debugToggleBtn = document.getElementById('debug-toggle-btn');
+function setupEventListeners() {
+    debugLog('Setting up event listeners');
     
-    if (!debugConsole || !debugToggleBtn) return;
+    document.getElementById("login-button")?.addEventListener("click", checkPassword);
+    document.getElementById("username-input")?.addEventListener("keypress", e => {
+        if (e.key === 'Enter') checkPassword();
+    });
+    document.getElementById("password-input")?.addEventListener("keypress", e => {
+        if (e.key === 'Enter') checkPassword();
+    });
 
-    const savedState = localStorage.getItem('debugConsoleVisible') === 'true';
-    debugConsole.style.display = savedState ? 'block' : 'none';
-    
-    // Set initial button state
-    debugToggleBtn.innerHTML = savedState 
-        ? '<i class="fas fa-times"></i> HIDE DEBUG' 
-        : '<i class="fas fa-bug"></i> SHOW DEBUG';
-}
+    document.getElementById("searchCustomer")?.addEventListener("keypress", e => {
+        if (e.key === 'Enter') searchCustomer();
+    });
 
-// ==================== SETUP DEBUG CONSOLE ====================
-function setupDebugConsole() {
-    // Initialize debug console state
-    initDebugConsole();
-    
-    // Set up toggle button
-    document.getElementById('debug-toggle-btn')?.addEventListener('click', toggleDebugConsole);
-    
-    // Add keyboard shortcut (Ctrl+Shift+D)
-    document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-            toggleDebugConsole();
+    document.getElementById("reportType")?.addEventListener("change", () => {
+        const customDateRange = document.getElementById("customDateRange");
+        if (customDateRange) {
+            customDateRange.style.display = 
+                document.getElementById("reportType").value === 'custom' ? 'block' : 'none';
+        }
+    });
+
+    document.getElementById("bulkLimitFile")?.addEventListener("change", function() {
+        const bulkUpdateResult = document.getElementById("bulkUpdateResult");
+        if (bulkUpdateResult) {
+            bulkUpdateResult.textContent = "";
         }
     });
     
-    // Log initialization
-    debugLog('Debug console initialized');
-}
-
-// Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', setupDebugConsole);
-
-// ==================== DEBUG UTILITY ====================
-async function verifyLoanDays(loanId) {
-    try {
-        const response = await apiClient(`/api/verify-days-calculation/${loanId}`);
-        const loanCardElement = document.querySelector(`.loan-card[data-loan-id="${loanId}"]`);
-        const clientDays = loanCardElement?.querySelector('.days-remaining')?.textContent;
-        
-        console.log('Verification Report:', {
-            serverCalculation: response.serverCalculation,
-            clientDisplay: clientDays,
-            timeDiscrepancy: response.serverTime - new Date()
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const modal = btn.closest('.modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
         });
-    } catch (error) {
-        console.error('Verification failed:', error);
-    }
+    });
+    
+    document.getElementById("approvalTermsModal")?.addEventListener("click", function(e) {
+        if (e.target === this) closeModal('approvalTermsModal');
+    });
+    
+    document.getElementById("reportModal")?.addEventListener("click", function(e) {
+        if (e.target === this) closeModal('reportModal');
+    });
+    
+    document.getElementById("loanDetailsModal")?.addEventListener("click", function(e) {
+        if (e.target === this) closeModal('loanDetailsModal');
+    });
+    
+    document.getElementById("generateReportBtn")?.addEventListener("click", generateReport);
+    
+    document.querySelectorAll('.luxury-btn[data-loan-type]').forEach(btn => {
+        btn.replaceWith(btn.cloneNode(true));
+    });
+    document.querySelectorAll('.luxury-btn[data-loan-type]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const loanType = btn.getAttribute('data-loan-type');
+            currentView = 'loans';
+            showLoans(loanType);
+        });
+    });
+    
+    document.getElementById('pending-payments-btn')?.addEventListener('click', () => {
+        currentView = 'payments';
+        showPendingPayments();
+    });
+    
+    document.getElementById('hide-loans-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        debugLog('Hide Loans button clicked');
+        backToDashboard();
+    });
+       
+    document.getElementById('logout-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        logout();
+    });
+
+    document.getElementById('process-bulk-btn')?.addEventListener('click', processBulkLimits);
+    
+    document.getElementById('confirm-approval-btn')?.addEventListener('click', confirmLoanApproval);
+    
+    document.getElementById('refresh-admin-btn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        await refreshAdminPortal();
+    });
 }
 
-// Call this when you need to debug a specific loan
-// verifyLoanDays('your-loan-id-here');
-
-// ==================== IMPROVED REFRESH FUNCTION ====================
 async function refreshAdminPortal() {
     const refreshBtn = document.getElementById('refresh-admin-btn');
     if (!refreshBtn) {
@@ -2749,18 +2549,15 @@ async function refreshAdminPortal() {
         return;
     }
 
-    // Store original state
     const originalHTML = refreshBtn.innerHTML;
     const originalDisabled = refreshBtn.disabled;
     
     try {
-        // Update UI to show loading state
         refreshBtn.innerHTML = '<i class="fas fa-sync fa-spin"></i> Refreshing...';
         refreshBtn.disabled = true;
         debugLog('Refresh initiated');
         showNotification('Refreshing data...', 'info');
 
-        // Set timeout for slow operation warning
         const timeout = setTimeout(() => {
             if (refreshBtn.innerHTML.includes('fa-spin')) {
                 showNotification('Refresh is taking longer than expected...', 'warning');
@@ -2768,7 +2565,6 @@ async function refreshAdminPortal() {
             }
         }, 5000);
 
-        // Refresh based on current view - IMPROVED
         switch(currentView) {
             case 'dashboard':
                 await loadAdminData();
@@ -2795,7 +2591,6 @@ async function refreshAdminPortal() {
                 await loadAdminData();
         }
 
-        // Clean up
         clearTimeout(timeout);
         showNotification('Portal data refreshed', 'success');
         debugLog('Refresh completed successfully');
@@ -2804,13 +2599,11 @@ async function refreshAdminPortal() {
         debugLog(`Refresh failed: ${error.message}`);
         showNotification(`Refresh failed: ${error.message}`, 'error');
         
-        // Additional error recovery if needed
         if (error.message.includes('authentication')) {
             debugLog('Authentication error detected during refresh');
             setTimeout(logout, 2000);
         }
     } finally {
-        // Restore button state
         if (refreshBtn) {
             refreshBtn.innerHTML = originalHTML;
             refreshBtn.disabled = originalDisabled;
@@ -2818,20 +2611,15 @@ async function refreshAdminPortal() {
     }
 }
 
-// ==================== DOCUMENT DOWNLOAD ====================
 function downloadLoanDocuments(loanId) {
-  // Placeholder implementation - would call backend in real app
   debugLog(`Downloading documents for loan: ${loanId}`);
   showNotification('Preparing documents for download...', 'info');
   
-  // Simulate delay
   setTimeout(() => {
     showNotification('Documents ready for download!', 'success');
-    // In real implementation: window.location = `/api/loans/${loanId}/documents`;
   }, 2000);
 }
 
-// ==================== MANUAL PAYMENT RECORDING ====================
 async function recordManualPayment(loanId, amount) {
   try {
     const reference = `MANUAL-${Date.now()}`;
@@ -2843,9 +2631,8 @@ async function recordManualPayment(loanId, amount) {
 
     if (response.success) {
       showNotification(`Manual payment of KES ${amount} recorded!`, 'success');
-      showLoanDetails(loanId); // Refresh the view
+      showLoanDetails(loanId);
       
-      // Refresh related views
       showPendingPayments();
       if (currentCustomerId) loadCustomerProfile(currentCustomerId);
     }
@@ -2854,13 +2641,11 @@ async function recordManualPayment(loanId, amount) {
   }
 }
 
-// Helper function to determine current view
-function getCurrentView() {
-    if (!document.getElementById('admin-content').classList.contains('hidden')) {
-        if (!document.getElementById('loans-section').classList.contains('hidden')) return 'loans';
-        if (!document.getElementById('pending-payments-section').classList.contains('hidden')) return 'payments';
-        if (!document.getElementById('customer-profile-section').classList.contains('hidden')) return 'customer-profile';
-        return 'dashboard';
-    }
-    return 'login';
+function calculateDaysRemaining(dueDate) {
+    if (!dueDate) return 'N/A';
+    const now = new Date();
+    const due = new Date(dueDate);
+    const diffTime = due - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
 }
