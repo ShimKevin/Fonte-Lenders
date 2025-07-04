@@ -9,6 +9,13 @@ let currentAdmin = null;
 let currentLoanId = null;
 let currentCustomerId = null;
 
+// Performance tracking
+const performanceMetrics = {
+    apiCalls: 0,
+    apiCallDuration: 0,
+    socketEvents: 0
+};
+
 // Date formatting utility         
 function formatDate(dateString) {
   if (!dateString) return 'N/A';
@@ -263,7 +270,13 @@ socket.on('overdueUpdate', (data) => {
 });
 
 // ==================== API CLIENT ====================
+const apiCache = new Map();
+const activeAbortControllers = new Map();
+
 async function apiClient(endpoint, method = 'GET', body = null) {
+    performanceMetrics.apiCalls++;
+    const startTime = performance.now();
+    
     let token = localStorage.getItem("adminToken");
     if (!token) {
         debugLog('No token found - logging out');
@@ -271,8 +284,24 @@ async function apiClient(endpoint, method = 'GET', body = null) {
         throw new Error('Authentication required');
     }
 
+    const cacheKey = `${method}:${endpoint}:${JSON.stringify(body)}`;
+    
+    // Return cached response if available (for GET requests)
+    if (method === 'GET' && apiCache.has(cacheKey)) {
+        const { data, timestamp } = apiCache.get(cacheKey);
+        // Return cached data if less than 30 seconds old
+        if (Date.now() - timestamp < 30000) {
+            debugLog(`Returning cached response for ${endpoint}`);
+            return data;
+        }
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
+    // Store the controller for possible cancellation
+    const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    activeAbortControllers.set(requestId, controller);
 
     try {
         debugLog(`API request: ${method} ${endpoint}`);
@@ -287,6 +316,7 @@ async function apiClient(endpoint, method = 'GET', body = null) {
         });
 
         clearTimeout(timeoutId);
+        activeAbortControllers.delete(requestId);
         
         // Handle token expiration
         if (response.status === 401) {
@@ -346,51 +376,38 @@ async function apiClient(endpoint, method = 'GET', body = null) {
             throw new Error(data.message || `Request failed with status ${response.status}`);
         }
         
+        // Cache successful GET responses
+        if (method === 'GET' && !endpoint.includes('/pending-') && data) {
+            apiCache.set(cacheKey, {
+                data,
+                timestamp: Date.now()
+            });
+        }
+        
         return data;
     } catch (error) {
         clearTimeout(timeoutId);
+        activeAbortControllers.delete(requestId);
         if (error.name === 'AbortError') {
             debugLog(`API timeout: ${endpoint}`);
             throw new Error('Request timed out');
         }
         debugLog(`API error: ${error.message}`);
         throw error;
+    } finally {
+        const duration = performance.now() - startTime;
+        performanceMetrics.apiCallDuration += duration;
+        debugLog(`API call to ${endpoint} took ${duration.toFixed(2)}ms`);
     }
 }
 
-async function validateTokenOnLoad() {
-    const token = localStorage.getItem("adminToken");
-    const refreshToken = localStorage.getItem("adminRefreshToken");
-    
-    if (!token || !refreshToken) {
-        showLoginContent();
-        return;
-    }
-
-    try {
-        // Check if token is about to expire (within 5 minutes)
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const expiresIn = (payload.exp * 1000) - Date.now();
-        
-        if (expiresIn < 300000) { // 5 minutes in milliseconds
-            debugLog('Token about to expire - refreshing');
-            await refreshAdminToken();
-        }
-        
-        await checkAuthStatus();
-    } catch (error) {
-        debugLog(`Token validation error: ${error.message}`);
-        showLoginContent();
-    }
+function cancelPendingOperations() {
+    debugLog(`Canceling ${activeAbortControllers.size} pending operations`);
+    activeAbortControllers.forEach((controller, id) => {
+        controller.abort();
+        activeAbortControllers.delete(id);
+    });
 }
-
-// Call this in your DOMContentLoaded event
-document.addEventListener('DOMContentLoaded', () => {
-    debugLog('DOM fully loaded');
-    setupDebugConsole();
-    setupEventListeners();
-    validateTokenOnLoad();
-});
 
 // ==================== AUTHENTICATION FUNCTIONS ====================
 async function checkPassword() {
@@ -1214,7 +1231,8 @@ function createLoanCard(loan) {
     
     const formatCurrency = (amount) => `KES ${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     
-    return `
+    // Start building the card HTML
+    let cardHTML = `
         <div class="loan-card ${isOverdue ? 'loan-overdue' : ''}" data-loan-id="${loan._id}">
             <div class="loan-header">
                 <div class="loan-title">
@@ -1241,8 +1259,19 @@ function createLoanCard(loan) {
                     <span class="metric-label">Balance</span>
                     <span class="metric-value ${balance > 0 ? 'negative' : 'positive'}">${formatCurrency(balance)}</span>
                 </div>
-            </div>
-            
+            </div>`;
+    
+    // Add overdue information if applicable
+    if (loan.overdueDays > 0) {
+        cardHTML += `
+            <div class="overdue-info">
+                <span>Overdue: ${loan.overdueDays} day${loan.overdueDays !== 1 ? 's' : ''}</span>
+                <span>Fees: KES ${loan.overdueFees?.toLocaleString() || '0'}</span>
+            </div>`;
+    }
+    
+    // Continue with the rest of the card
+    cardHTML += `
             <div class="loan-status-bar">
                 <div class="status-info">
                     <span class="${statusClass}">${statusText}</span>
@@ -1267,8 +1296,9 @@ function createLoanCard(loan) {
             </div>
             
             ${urgencyBadge}
-        </div>
-    `;
+        </div>`;
+    
+    return cardHTML;
 }
 
 function displayLoans(loans, status, totalPages = 1, currentPage = 1) {
@@ -1386,7 +1416,8 @@ async function showLoanDetails(loanId) {
     const dailyPenalty = safePrincipal * 0.06;
     const maxPaymentAmount = Math.max(0, safeBalance);
 
-    document.getElementById('loanDetailsContent').innerHTML = `
+    // Start building the modal content
+    let modalContent = `
       <div class="loan-details-modal-content">
         <div class="loan-header">
           <h3>Loan Details</h3>
@@ -1431,34 +1462,34 @@ async function showLoanDetails(loanId) {
               <strong>Completed:</strong> ${loan.completedAt ? formatDate(loan.completedAt) : 'N/A'}
             </div>
           </div>
-        </div>
-        
-        ${loan.status === 'defaulted' ? `
-          <div class="overdue-summary">
-            <h4>Overdue Details</h4>
-            <div class="detail-row">
-              <span>Days Overdue:</span>
-              <span>${loan.overdueDays || 0}</span>
-            </div>
-            <div class="detail-row">
-              <span>Daily Penalty:</span>
-              <span>6% of principal (KES ${dailyPenalty.toLocaleString()}/day)</span>
-            </div>
-            <div class="detail-row">
-              <span>Total Penalty:</span>
-              <span>KES ${safeOverdueFees.toLocaleString()}</span>
-            </div>
-            <div class="detail-row">
-              <span>Updated Total:</span>
-              <span>KES ${safeTotalAmount.toLocaleString()}</span>
-            </div>
-            <div class="detail-row">
-              <span>Last Calculated:</span>
-              <span>${loan.lastOverdueCalculation ? formatDate(loan.lastOverdueCalculation) : 'N/A'}</span>
-            </div>
+        </div>`;
+
+    // Add overdue details if applicable
+    if (loan.overdueDays > 0) {
+      modalContent += `
+        <div class="overdue-details">
+          <h4>Overdue Calculation</h4>
+          <div class="detail-row">
+            <span>Days Overdue:</span>
+            <span>${loan.overdueDays} (max 6 days penalty)</span>
           </div>
-        ` : ''}
-        
+          <div class="detail-row">
+            <span>Daily Penalty:</span>
+            <span>6% of principal (KES ${dailyPenalty.toLocaleString()}/day)</span>
+          </div>
+          <div class="detail-row">
+            <span>Total Penalty:</span>
+            <span>KES ${safeOverdueFees.toLocaleString()}</span>
+          </div>
+          <div class="detail-row">
+            <span>Last Calculated:</span>
+            <span>${loan.lastOverdueCalculation ? formatDate(loan.lastOverdueCalculation) : 'N/A'}</span>
+          </div>
+        </div>`;
+    }
+
+    // Continue with the rest of the modal content
+    modalContent += `
         <div class="payment-summary">
           <div class="summary-card">
             <h5>Amount Paid</h5>
@@ -1513,8 +1544,9 @@ async function showLoanDetails(loanId) {
             </button>
           </div>
         ` : ''}
-      </div>
-    `;
+      </div>`;
+
+    document.getElementById('loanDetailsContent').innerHTML = modalContent;
     
     const forcePaymentBtn = document.getElementById('force-payment-btn');
     if (forcePaymentBtn) {
@@ -2047,31 +2079,40 @@ function updatePendingCount(change) {
 }
 
 // ==================== UTILITY FUNCTIONS ====================
-function showLoading(context) {
-    const element = document.getElementById(context);
+function showLoading(context, message = 'Loading...') {
+    const element = typeof context === 'string' 
+        ? document.getElementById(context) 
+        : context;
+    
     if (element) {
-        element.innerHTML = '<div class="spinner"></div>';
-        element.classList.remove('hidden');
+        const loadingId = `loading-${Date.now()}`;
+        loadingStates.set(element, loadingId);
         
-        setTimeout(() => {
-            if (element.querySelector('.spinner')) {
-                const warning = document.createElement('div');
-                warning.className = 'loading-warning';
-                warning.textContent = 'Loading is taking longer than expected...';
-                warning.style.color = '#FFA500';
-                warning.style.marginTop = '10px';
-                element.appendChild(warning);
-            }
-        }, 8000);
+        element.innerHTML = `
+            <div class="loading-overlay" id="${loadingId}">
+                <div class="spinner"></div>
+                <div class="loading-message">${message}</div>
+            </div>
+            ${element.innerHTML}
+        `;
+        
+        element.classList.add('loading');
     }
 }
 
 function hideLoading(context) {
-    const element = document.getElementById(context);
+    const element = typeof context === 'string' 
+        ? document.getElementById(context) 
+        : context;
+    
     if (element) {
-        element.innerHTML = '';
-        const warning = element.querySelector('.loading-warning');
-        if (warning) warning.remove();
+        const loadingId = loadingStates.get(element);
+        if (loadingId) {
+            const overlay = document.getElementById(loadingId);
+            if (overlay) overlay.remove();
+            loadingStates.delete(element);
+        }
+        element.classList.remove('loading');
     }
 }
 
@@ -2438,19 +2479,6 @@ function startTokenValidationInterval() {
     }, 300000); // 5 minutes
 }
 
-// Call this after successful login
-function onSuccessfulLogin() {
-    showAdminContent();
-    startTokenValidationInterval();
-    
-    // Update socket connection with new token
-    const token = localStorage.getItem('adminToken');
-    if (socket) {
-        socket.auth.token = token;
-        if (!socket.connected) socket.connect();
-    }
-}
-
 function setupEventListeners() {
     debugLog('Setting up event listeners');
     
@@ -2504,13 +2532,15 @@ function setupEventListeners() {
     
     document.getElementById("generateReportBtn")?.addEventListener("click", generateReport);
     
-    document.querySelectorAll('.luxury-btn[data-loan-type]').forEach(btn => {
-        btn.replaceWith(btn.cloneNode(true));
-    });
-    document.querySelectorAll('.luxury-btn[data-loan-type]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+    // Improved loan button event listeners
+    const loanButtons = document.querySelectorAll('.luxury-btn[data-loan-type]');
+    loanButtons.forEach(btn => {
+        // Remove any existing listeners first
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+        newBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            const loanType = btn.getAttribute('data-loan-type');
+            const loanType = newBtn.getAttribute('data-loan-type');
             currentView = 'loans';
             showLoans(loanType);
         });
@@ -2648,4 +2678,110 @@ function calculateDaysRemaining(dueDate) {
     const diffTime = due - now;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
+}
+
+// Card click handler utility
+function handleCardClick(card, callback) {
+    let isProcessing = false;
+    
+    card.addEventListener('click', async (e) => {
+        if (isProcessing) return;
+        isProcessing = true;
+        
+        // Add visual feedback
+        card.style.opacity = '0.7';
+        
+        try {
+            await callback(e);
+        } catch (error) {
+            console.error('Card click error:', error);
+        } finally {
+            // Restore card appearance
+            setTimeout(() => {
+                card.style.opacity = '1';
+                isProcessing = false;
+            }, 300);
+        }
+    });
+}
+
+// Modal management
+let activeModal = null;
+
+function showModal(modalId) {
+    if (activeModal) {
+        closeModal(activeModal);
+    }
+    
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'block';
+        activeModal = modalId;
+        
+        // Add escape key handler
+        const keyHandler = (e) => {
+            if (e.key === 'Escape') {
+                closeModal(modalId);
+                document.removeEventListener('keydown', keyHandler);
+            }
+        };
+        
+        document.addEventListener('keydown', keyHandler);
+    }
+}
+
+// View manager for better navigation control
+const viewManager = {
+    currentView: 'dashboard',
+    views: {},
+    
+    registerView(name, config) {
+        this.views[name] = config;
+    },
+    
+    showView(name, params) {
+        if (this.views[name]) {
+            // Hide current view
+            if (this.views[this.currentView]?.hide) {
+                this.views[this.currentView].hide();
+            }
+            
+            // Show new view
+            this.currentView = name;
+            this.views[name].show(params);
+        }
+    }
+};
+
+// Register views during initialization
+viewManager.registerView('dashboard', {
+    show: () => {
+        document.getElementById('admin-grid').classList.remove('hidden');
+        loadAdminData();
+    },
+    hide: () => {
+        document.getElementById('admin-grid').classList.add('hidden');
+    }
+});
+
+viewManager.registerView('loans', {
+    show: (status) => showLoans(status),
+    hide: () => {
+        document.getElementById('loans-section').classList.add('hidden');
+    }
+});
+
+// Performance tracking utility
+function trackPerformance(name, action) {
+    const start = performance.now();
+    const result = action();
+    const duration = performance.now() - start;
+    
+    debugLog(`Performance: ${name} took ${duration.toFixed(2)}ms`);
+    
+    if (duration > 500) {
+        showNotification(`${name} is taking longer than expected`, 'warning');
+    }
+    
+    return result;
 }

@@ -6,7 +6,6 @@
     <title>Fonte Lenders - User Profile</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* All existing CSS styles remain unchanged */
         :root {
             --gold: #FFD700;
             --dark-gold: #D4AF37;
@@ -119,7 +118,7 @@
             color: var(--gold);
             min-width: 150px;
         }
-        
+
         /* Status Indicators */
         .status-active { color: var(--status-active); font-weight: 500; }
         .status-pending { color: var(--status-pending); }
@@ -135,13 +134,29 @@
         /* Overdue loan styling */
         .loan-overdue {
             border-left: 4px solid var(--error);
-            background: rgba(255, 107, 107, 0.05);
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        .overdue-beyond-cap {
+            background: rgba(255, 165, 0, 0.1);
+            border-left: 3px solid var(--warning);
         }
 
         .negative-days {
             color: var(--error);
             font-weight: bold;
             animation: pulse 1.5s infinite;
+        }
+
+        .penalty-capped {
+            color: var(--warning);
+            font-weight: bold;
+        }
+
+        .penalty-info {
+            font-size: 0.9em;
+            margin-top: 5px;
+            color: var(--warning);
         }
         
         /* Loan Details */
@@ -556,7 +571,7 @@
             const due = new Date(dueDate);
             const diff = due - now;
             const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-            return days; // Return negative values when overdue
+            return days; // Returns negative when overdue
         }
 
         const profileContainer = document.getElementById('profile-container');
@@ -920,35 +935,61 @@
             const isOverdue = daysRemaining < 0;
             const interestRate = loan.interestRate || 15;
             const interestAmount = (loan.amount * interestRate) / 100;
-            const totalAmount = loan.amount + interestAmount + (loan.overdueFees || 0);
+            
+            // Calculate overdue days and cap penalties at 6 days
+            const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
+            const penaltyDays = Math.min(overdueDays, 6);
+            const dailyPenalty = loan.amount * 0.06; // 6% daily penalty
+            const cappedPenalty = dailyPenalty * penaltyDays;
+            const totalAmount = loan.amount + interestAmount + cappedPenalty;
+            
             const amountPaid = loan.amountPaid || 0;
             const amountDue = totalAmount - amountPaid;
             
             return `
-                <div class="active-loan-details ${isOverdue ? 'loan-overdue' : ''}">
+                <div class="active-loan-details ${isOverdue ? 'loan-overdue' : ''} ${overdueDays > 6 ? 'overdue-beyond-cap' : ''}">
                     <h4>${isOverdue ? 'Overdue Loan Details' : 'Active Loan Details'}</h4>
                     
                     ${isOverdue ? `
                         <div class="overdue-alert">
-                            <h4><i class="fas fa-exclamation-triangle"></i> Loan Overdue</h4>
+                            <h4><i class="fas fa-exclamation-triangle"></i> 
+                                ${overdueDays > 6 ? 'Long Overdue Loan' : 'Loan Overdue'}
+                            </h4>
                             <div class="overdue-details">
-                                <div class="detail">
+                                <div class="overdue-detail">
                                     <span>Days Overdue:</span>
-                                    <span>${Math.abs(daysRemaining)}</span>
+                                    <span>${overdueDays} ${overdueDays > 6 ? '(penalty capped at 6 days)' : ''}</span>
                                 </div>
-                                <div class="detail">
-                                    <span>Daily Penalty (6%):</span>
-                                    <span>KES ${(loan.amount * 0.06).toLocaleString()}/day</span>
+                                ${overdueDays <= 6 ? `
+                                <div class="overdue-detail">
+                                    <span>Daily Penalty:</span>
+                                    <span>KES ${dailyPenalty.toLocaleString()}/day</span>
                                 </div>
-                                <div class="detail">
+                                ` : `
+                                <div class="overdue-detail penalty-capped">
+                                    <span>Penalty Status:</span>
+                                    <span>Capped at 6 days (KES ${(dailyPenalty*6).toLocaleString()})</span>
+                                </div>
+                                `}
+                                <div class="overdue-detail">
                                     <span>Total Penalty:</span>
-                                    <span>KES ${loan.overdueFees?.toLocaleString() || '0'}</span>
+                                    <span>KES ${cappedPenalty.toLocaleString()}</span>
                                 </div>
-                                <div class="detail">
+                                <div class="overdue-detail">
                                     <span>Updated Total Due:</span>
                                     <span>KES ${totalAmount.toLocaleString()}</span>
                                 </div>
                             </div>
+                            ${overdueDays > 6 ? `
+                            <div class="penalty-info">
+                                <i class="fas fa-info-circle"></i> Penalty fees are capped at 6 days, but the loan remains overdue until fully paid
+                            </div>
+                            ` : `
+                            <p class="warning-text">
+                                <i class="fas fa-exclamation-circle"></i> 
+                                Please make payment immediately to avoid additional penalties
+                            </p>
+                            `}
                         </div>
                     ` : ''}
                     
@@ -961,7 +1002,7 @@
                             <div class="metric-value">${interestRate}%</div>
                             <div class="metric-label">Interest Rate</div>
                         </div>
-                        <div class="metric">
+                        <div class="metric ${isOverdue ? 'overdue' : ''}">
                             <div class="metric-value">KES ${totalAmount.toLocaleString()}</div>
                             <div class="metric-label">Total Due</div>
                         </div>
@@ -969,53 +1010,86 @@
                             <div class="metric-value">KES ${amountPaid.toLocaleString()}</div>
                             <div class="metric-label">Amount Paid</div>
                         </div>
-                        <div class="metric">
-                            <div class="metric-value">KES ${amountDue.toLocaleString()}</div>
+                        <div class="metric ${amountDue > 0 ? 'overdue' : ''}">
+                            <div class="metric-value ${amountDue > 0 ? 'negative-balance' : ''}">
+                                KES ${amountDue.toLocaleString()}
+                            </div>
                             <div class="metric-label">Amount Due</div>
                         </div>
-                        <div class="metric">
+                        <div class="metric ${isOverdue ? 'overdue' : ''}">
                             <div class="metric-value">
-                                <span class="${isOverdue ? 'negative-days' : 'days-remaining'}" 
-                                      data-due-date="${loan.dueDate}">
-                                    ${daysRemaining}
+                                <span class="${isOverdue ? 'days-overdue' : ''}">
+                                    ${isOverdue ? overdueDays : daysRemaining}
                                 </span>
                             </div>
                             <div class="metric-label">
-                                ${isOverdue ? 'Days Overdue' : 'Days Remaining'}
+                                ${isOverdue ? 
+                                    (overdueDays > 6 ? 'Days Overdue (Beyond Cap)' : 'Days Overdue') 
+                                    : 'Days Remaining'}
                             </div>
                         </div>
                     </div>
                     
                     <div class="profile-field">
                         <strong>Due Date:</strong>
-                        <span>${formatDate(loan.dueDate)}</span>
+                        <span class="${isOverdue ? 'status-defaulted' : ''}">
+                            ${formatDate(loan.dueDate)}
+                        </span>
                     </div>
                     <div class="profile-field">
                         <strong>Disbursement Date:</strong>
                         <span>${formatDate(loan.approvedAt)}</span>
                     </div>
                     
-                    ${loan.repaymentSchedule?.length > 0 ? generateRepaymentSchedule(loan) : ''}
+                    ${generateRepaymentSchedule(loan)}
+                    
+                    ${isOverdue ? `
+                        <div class="payment-urgency">
+                            <p><i class="fas fa-bolt"></i> <strong>URGENT:</strong> Please make payment immediately to clear your overdue balance</p>
+                        </div>
+                    ` : ''}
                 </div>
             `;
         }
 
         function generateRepaymentSchedule(loan) {
+            const now = new Date();
+            const dailyPenalty = loan.amount * 0.06;
+            const maxPenalty = dailyPenalty * 6;
+            const isOverdue = calculateDaysRemaining(loan.dueDate) < 0;
+            const overdueDays = isOverdue ? Math.abs(calculateDaysRemaining(loan.dueDate)) : 0;
+            
             return `
                 <div class="repayment-schedule">
                     <h4><i class="fas fa-calendar-alt"></i> Repayment Schedule</h4>
+                    ${overdueDays > 6 ? `
+                    <div class="penalty-info">
+                        <i class="fas fa-info-circle"></i> 
+                        Note: Penalty fees capped at 6 days (KES ${maxPenalty.toLocaleString()})
+                    </div>
+                    ` : ''}
                     <div class="schedule-header">
                         <span>Due Date</span>
                         <span>Amount</span>
                         <span>Status</span>
                     </div>
-                    ${loan.repaymentSchedule.map(payment => `
-                        <div class="schedule-item">
-                            <span>${formatDate(payment.dueDate)}</span>
-                            <span>KES ${payment.amount.toLocaleString()}</span>
-                            <span class="status-${payment.status}">${payment.status.toUpperCase()}</span>
-                        </div>
-                    `).join('')}
+                    ${loan.repaymentSchedule?.map(payment => {
+                        const paymentDueDate = new Date(payment.dueDate);
+                        const isPaymentOverdue = paymentDueDate < now && payment.status !== 'paid';
+                        const paymentOverdueDays = isPaymentOverdue ? 
+                            Math.ceil((now - paymentDueDate) / (1000 * 60 * 60 * 24)) : 0;
+                        
+                        return `
+                            <div class="schedule-item ${isPaymentOverdue ? 'overdue-item' : ''}">
+                                <span>${formatDate(payment.dueDate)}</span>
+                                <span>KES ${payment.amount.toLocaleString()}</span>
+                                <span class="status-${payment.status} ${isPaymentOverdue ? 'status-defaulted' : ''}">
+                                    ${payment.status.toUpperCase()}
+                                    ${isPaymentOverdue ? ` (${Math.min(paymentOverdueDays, 6)}/${paymentOverdueDays} days)` : ''}
+                                </span>
+                            </div>
+                        `;
+                    }).join('') || '<div class="no-schedule">No repayment schedule available</div>'}
                 </div>
             `;
         }

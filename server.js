@@ -383,7 +383,7 @@ const loanApplicationSchema = new mongoose.Schema({
   verificationStatus: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
   status: { 
     type: String, 
-    enum: ['pending', 'approved', 'rejected', 'active', 'completed', 'overdue'], 
+    enum: ['pending', 'approved', 'rejected', 'active', 'completed', 'defaulted'],
     default: 'pending' 
   },
   adminNotes: String,
@@ -403,101 +403,154 @@ const loanApplicationSchema = new mongoose.Schema({
   repaymentSchedule: [{
     dueDate: Date,
     amount: Number,
-    paidAmount: { type: Number, default: 0 }, // Track partial payments
+    paidAmount: { type: Number, default: 0 },
     status: { 
       type: String, 
-      enum: ['pending', 'paid', 'overdue', 'partial'], // Includes 'partial'
+      enum: ['pending', 'paid', 'overdue', 'partial'],
       default: 'pending' 
     },
     paidAt: Date
   }],
-  totalAmount: { type: Number } // Total amount including interest
+  totalAmount: { type: Number }, // Total amount including interest and overdue fees
+  overdueDays: { type: Number, default: 0 }, // Number of days overdue
+  overdueFees: { type: Number, default: 0 }, // Total overdue fees (6% of principal per day, max 6 days)
+  lastOverdueCalculation: Date, // When overdue was last calculated
+  principal: { type: Number }, // Explicitly track principal amount
+  interestRate: { type: Number }, // Track the interest rate
+  interestAmount: { type: Number }, // Track calculated interest amount
+  lastStatusUpdate: Date // Track when status was last updated
 }, { timestamps: true });
 
 // Add indexes for frequent queries
 loanApplicationSchema.index({ userId: 1, status: 1 });
-paymentSchema.index({ userId: 1, status: 1 });
+loanApplicationSchema.index({ status: 1, dueDate: 1 });
 
-// Add pre-save hook for loan status tracking
+// Pre-save hook for automatic overdue calculation
 loanApplicationSchema.pre('save', function(next) {
+  // Update status timestamp if status changed
   if (this.isModified('status') || this.isNew) {
     this.lastStatusUpdate = new Date();
   }
+
+  // Calculate overdue status and fees for active loans
+  if (this.status === 'active' && this.dueDate && new Date(this.dueDate) < new Date()) {
+    const now = new Date();
+    const dueDate = new Date(this.dueDate);
+    const daysOverdue = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
+    
+    // Cap penalty calculation at 6 days
+    const penaltyDays = Math.min(daysOverdue, 6);
+    
+    // Only recalculate if daysOverdue increased or never calculated before
+    if (daysOverdue > this.overdueDays || !this.lastOverdueCalculation) {
+      this.overdueFees = this.principal * 0.06 * penaltyDays;
+      this.overdueDays = daysOverdue;
+      this.lastOverdueCalculation = now;
+      this.totalAmount = this.principal + (this.interestAmount || 0) + this.overdueFees;
+      
+      // Update status to defaulted if overdue (but keep tracking days beyond cap)
+      if (daysOverdue > 0 && this.status !== 'defaulted') {
+        this.status = 'defaulted';
+        this.lastStatusUpdate = now;
+      }
+    }
+  }
+  
+  // Mark as completed if fully paid
+  if (this.status === 'active' && this.amountPaid >= this.totalAmount) {
+    this.status = 'completed';
+    this.lastStatusUpdate = new Date();
+    this.overdueDays = 0;
+    this.overdueFees = 0;
+  }
+
   next();
 });
 
+// Static method for batch updating loan statuses
 loanApplicationSchema.statics.updateLoanStatuses = async function() {
   const now = new Date();
   
   try {
-    // 1. Update overdue loans but keep status as "active" (from server.js version)
+    // 1. Update overdue loans (capped at 6 days for penalties)
     await this.updateMany(
       {
-        status: 'active',
-        dueDate: { $lt: now }
+        status: { $in: ['active', 'defaulted'] },
+        dueDate: { $lt: now },
+        $or: [
+          { lastOverdueCalculation: { $lt: new Date(now.setHours(0, 0, 0, 0)) } },
+          { lastOverdueCalculation: { $exists: false } }
+        ]
       },
       [{
         $set: {
           overdueDays: { 
-            $multiply: [
-              { $subtract: [now, '$dueDate'] },
-              1 / (1000 * 60 * 60 * 24) // Convert ms to days
-            ]
+            $ceil: {
+              $divide: [
+                { $subtract: [now, '$dueDate'] },
+                1000 * 60 * 60 * 24 // Convert ms to days
+              ]
+            }
           },
           overdueFees: { 
             $multiply: [
               '$principal',
               0.06,
               {
-                $ceil: {
-                  $divide: [
-                    { $subtract: [now, '$dueDate'] },
-                    1000 * 60 * 60 * 24 // Convert ms to days
-                  ]
-                }
+                $min: [
+                  {
+                    $ceil: {
+                      $divide: [
+                        { $subtract: [now, '$dueDate'] },
+                        1000 * 60 * 60 * 24 // Convert ms to days
+                      ]
+                    }
+                  },
+                  6 // Cap at 6 days
+                ]
               }
             ]
           },
-          lastOverdueCalculation: now
-        }
-      }, {
-        $set: {
+          lastOverdueCalculation: now,
+          status: {
+            $cond: {
+              if: { $gt: ['$overdueDays', 0] },
+              then: 'defaulted',
+              else: '$status'
+            }
+          },
           totalAmount: {
             $add: [
               '$principal',
               '$interestAmount',
-              '$overdueFees'
+              {
+                $multiply: [
+                  '$principal',
+                  0.06,
+                  {
+                    $min: [
+                      {
+                        $ceil: {
+                          $divide: [
+                            { $subtract: [now, '$dueDate'] },
+                            1000 * 60 * 60 * 24
+                          ]
+                        }
+                      },
+                      6
+                    ]
+                  }
+                ]
+              }
             ]
           }
         }
       }]
     );
 
-    // 2. Notify users of overdue updates (from admin.js version)
-    const overdueLoans = await this.find({
-      status: 'active',
-      dueDate: { $lt: now },
-      lastNotificationSent: { $ne: now }
-    }).lean();
-
-    for (const loan of overdueLoans) {
-      if (loan.userId) {
-        io.to(`user_${loan.userId}`).emit('overdueUpdate', {
-          loanId: loan._id,
-          overdueDays: Math.ceil((now - loan.dueDate) / (1000 * 60 * 60 * 24)),
-          overdueFees: loan.overdueFees,
-          totalAmount: loan.totalAmount
-        });
-      }
-      await this.updateOne(
-        { _id: loan._id },
-        { $set: { lastNotificationSent: now } }
-      );
-    }
-
-    // 3. Mark loans as completed if fully paid (combined approach)
+    // 2. Mark loans as completed if fully paid
     await this.updateMany({
-      status: 'active',
+      status: { $in: ['active', 'defaulted'] },
       $expr: { $gte: ['$amountPaid', '$totalAmount'] }
     }, {
       $set: { 
@@ -509,6 +562,7 @@ loanApplicationSchema.statics.updateLoanStatuses = async function() {
     });
 
     console.log('✅ Loan status updates completed successfully');
+    return true;
   } catch (error) {
     console.error('❌ Loan status update job failed:', error);
     throw error;
