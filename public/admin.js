@@ -1144,14 +1144,15 @@ async function showLoans(status = 'pending', page = 1) {
         showLoading('loans');
         debugLog(`Loading ${status} loans, page ${page}`);
         
-        // Always include defaulted loans in active view
+        // MODIFIED: Always include active and defaulted loans in active view
         const statusParam = status === 'active' ? 'active,defaulted' : status;
         
         const response = await apiClient(
             `/api/admin/loan-applications?status=${encodeURIComponent(statusParam)}&page=${page}&limit=20`
         );
         
-        // Don't filter anything - show all loans from the server
+        // REMOVED: Old filtering logic
+        // ADDED: Show all loans from server without filtering
         const loansToDisplay = response.applications || [];
         
         if (status === 'active') {
@@ -1204,16 +1205,22 @@ function createLoanCard(loan) {
     const amountPaid = loan.amountPaid || 0;
     const balance = totalAmount - amountPaid;
     
-    // Only consider completed if status is explicitly 'completed' or balance is <= 0
-    const isCompleted = loan.status === 'completed' || balance <= 0;
+    // MODIFIED: Only consider completed if status is explicitly 'completed' AND payment is fully approved
+    const isCompleted = loan.status === 'completed' && loan.paymentStatus === 'fully_approved';
     const isOverdue = loan.status === 'defaulted' || (daysRemaining < 0 && !isCompleted);
     const isDueSoon = daysRemaining >= 0 && daysRemaining <= 7 && !isCompleted;
+    const hasPendingPayments = loan.pendingPayments && loan.pendingPayments.length > 0;
     
     let statusText, statusClass, urgencyBadge = '';
     
+    // MODIFIED: Status logic to account for pending payments
     if (isCompleted) {
         statusText = 'PAID IN FULL';
         statusClass = 'status-completed';
+    } else if (hasPendingPayments) {
+        statusText = 'PENDING PAYMENT APPROVAL';
+        statusClass = 'status-pending';
+        urgencyBadge = '<div class="pending-badge">PENDING</div>';
     } else if (isOverdue) {
         statusText = `${Math.abs(daysRemaining)} DAY${Math.abs(daysRemaining) !== 1 ? 'S' : ''} OVERDUE`;
         statusClass = 'status-overdue';
@@ -1231,9 +1238,9 @@ function createLoanCard(loan) {
     
     const formatCurrency = (amount) => `KES ${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     
-    // Start building the card HTML
+    // MODIFIED: Card HTML to show pending payment info if exists
     let cardHTML = `
-        <div class="loan-card ${isOverdue ? 'loan-overdue' : ''}" data-loan-id="${loan._id}">
+        <div class="loan-card ${isOverdue ? 'loan-overdue' : ''} ${hasPendingPayments ? 'loan-pending' : ''}" data-loan-id="${loan._id}">
             <div class="loan-header">
                 <div class="loan-title">
                     <h4>${loan.fullName || 'Unknown Customer'}</h4>
@@ -1261,22 +1268,32 @@ function createLoanCard(loan) {
                 </div>
             </div>`;
     
-    // Add overdue information if applicable
+    // MODIFIED: Enhanced overdue information display
     if (loan.overdueDays > 0) {
         cardHTML += `
             <div class="overdue-info">
                 <span>Overdue: ${loan.overdueDays} day${loan.overdueDays !== 1 ? 's' : ''}</span>
                 <span>Fees: KES ${loan.overdueFees?.toLocaleString() || '0'}</span>
+                ${hasPendingPayments ? `<span>Pending: ${loan.pendingPayments.length} payment${loan.pendingPayments.length !== 1 ? 's' : ''}</span>` : ''}
+            </div>`;
+    } else if (hasPendingPayments) {
+        cardHTML += `
+            <div class="pending-payments-info">
+                <span>Pending Payments: ${loan.pendingPayments.length}</span>
+                <span>Total Pending: KES ${loan.pendingPayments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}</span>
             </div>`;
     }
     
-    // Continue with the rest of the card
+    // MODIFIED: Status bar with additional payment status info
     cardHTML += `
             <div class="loan-status-bar">
                 <div class="status-info">
                     <span class="${statusClass}">${statusText}</span>
                     ${daysRemaining >= 0 && !isCompleted ? `
                     <span class="due-date">Due: ${dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    ` : ''}
+                    ${hasPendingPayments ? `
+                    <span class="pending-date">Submitted: ${formatDate(loan.pendingPayments[0].createdAt)}</span>
                     ` : ''}
                 </div>
                 <div class="progress-container">
@@ -1291,6 +1308,11 @@ function createLoanCard(loan) {
                 ${!isCompleted ? `
                 <button class="action-btn record-payment" onclick="showPaymentModal('${loan._id}')">
                     <i class="fas fa-money-bill-wave"></i> Record Payment
+                </button>
+                ` : ''}
+                ${hasPendingPayments ? `
+                <button class="action-btn view-pending" onclick="showPendingPayments('${loan._id}')">
+                    <i class="fas fa-clock"></i> View Pending
                 </button>
                 ` : ''}
             </div>

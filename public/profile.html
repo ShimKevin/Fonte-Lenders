@@ -1267,7 +1267,12 @@
                         throw new Error(data.message || 'Payment submission failed');
                     }
 
-                    showNotification('Payment submitted for admin approval!', 'success');
+                    // MODIFIED: Show appropriate message based on payment status
+                    if (data.isFullyPaid) {
+                        showNotification('Payment submitted! Loan will be marked as completed after approval.', 'success');
+                    } else {
+                        showNotification('Payment submitted for admin approval!', 'success');
+                    }
                     
                     document.getElementById('paymentReference').value = '';
                     document.getElementById('paymentAmount').value = '';
