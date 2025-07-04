@@ -1,31 +1,105 @@
-// ==================== GLOBAL VARIABLES ====================
-const API_BASE_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:3000'
-  : 'https://fonte-lenders.onrender.com';
-
-// State management variable
-let currentView = 'dashboard';
-let currentAdmin = null;
-let currentLoanId = null;
-let currentCustomerId = null;
-
-// Performance tracking
-const performanceMetrics = {
-    apiCalls: 0,
-    apiCallDuration: 0,
-    socketEvents: 0
+// ==================== ENHANCED GLOBAL STATE MANAGEMENT ====================
+const ENVIRONMENT_CONFIG = {
+  LOCAL: {
+    API_BASE_URL: 'http://localhost:3000',
+    DEBUG: true
+  },
+  PRODUCTION: {
+    API_BASE_URL: 'https://fonte-lenders.onrender.com',
+    DEBUG: false
+  }
 };
 
-// Date formatting utility         
-function formatDate(dateString) {
-  if (!dateString) return 'N/A';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  });
-}
+// Determine environment
+const isLocalDevelopment = window.location.hostname === 'localhost' || 
+                         window.location.hostname === '127.0.0.1';
+const CURRENT_ENV = isLocalDevelopment ? ENVIRONMENT_CONFIG.LOCAL : ENVIRONMENT_CONFIG.PRODUCTION;
+
+// Application State
+const AppState = {
+  // View state
+  currentView: 'dashboard',
+  previousView: null,
+  
+  // User state
+  currentAdmin: null,
+  adminPermissions: [],
+  
+  // Entity tracking
+  currentLoanId: null,
+  currentCustomerId: null,
+  
+  // UI state
+  openCards: new Set(),
+  activeModals: new Set(),
+  
+  // Performance metrics
+  metrics: {
+    apiCalls: 0,
+    apiCallDuration: 0,
+    socketEvents: 0,
+    renderCount: 0,
+    lastRenderTime: null
+  },
+  
+  // Configuration
+  config: {
+    apiTimeout: 30000, // 30 seconds
+    socketReconnectDelay: 5000,
+    maxOpenCards: 5
+  },
+  
+  // Cache
+  cache: {
+    customers: new Map(),
+    loans: new Map(),
+    payments: new Map(),
+    lastUpdated: null
+  }
+};
+
+// Utility Functions
+const AppUtils = {
+  formatDate: (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      console.error('Date formatting error:', e);
+      return 'Invalid Date';
+    }
+  },
+  
+  formatCurrency: (amount) => {
+    return new Intl.NumberFormat('en-KE', {
+      style: 'currency',
+      currency: 'KES',
+      minimumFractionDigits: 2
+    }).format(amount || 0);
+  },
+  
+  debugLog: (message, data = null) => {
+    if (CURRENT_ENV.DEBUG) {
+      const timestamp = new Date().toISOString();
+      console.log(`[${timestamp}] ${message}`, data || '');
+      
+      // Send to debug console if available
+      if (window.debugConsole) {
+        window.debugConsole.log(message, data);
+      }
+    }
+  }
+};
+
+// Initialize performance tracking
+window.performance.mark('appStart');
 
 // ==================== SOCKET.IO CONNECTION ====================
 const socket = io(API_BASE_URL, {
@@ -1198,6 +1272,7 @@ function createLoanCard(loan) {
     const now = new Date();
     const dueDate = new Date(loan.dueDate);
     const timeRemaining = dueDate - now;
+    // Changed to Math.floor to match user profile calculation
     const daysRemaining = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
     
     const principal = loan.principal || loan.amount || 0;
@@ -1434,7 +1509,8 @@ async function showLoanDetails(loanId) {
       `;
     }).join('') || '<tr><td colspan="5">No repayment history</td></tr>';
 
-    const daysRemaining = loan.dueDate ? calculateDaysRemaining(loan.dueDate) : 'N/A';
+    // Changed to Math.floor to match user profile calculation
+    const daysRemaining = loan.dueDate ? Math.floor((new Date(loan.dueDate) - new Date()) / (1000 * 60 * 60 * 24)) : 'N/A';
     const dailyPenalty = safePrincipal * 0.06;
     const maxPaymentAmount = Math.max(0, safeBalance);
 
@@ -1549,7 +1625,7 @@ async function showLoanDetails(loanId) {
             <div class="form-group">
               <label for="force-payment-amount">Amount</label>
               <input type="number" id="force-payment-amount" 
-                     min="1" max="${maxPaymentAmount}" 
+                     min="5" max="${maxPaymentAmount}" 
                      step="100" value="${maxPaymentAmount}">
             </div>
             <button class="luxury-btn" id="force-payment-btn" 
@@ -1575,10 +1651,10 @@ async function showLoanDetails(loanId) {
       forcePaymentBtn.addEventListener('click', () => {
         const amountInput = document.getElementById('force-payment-amount');
         const amount = parseFloat(amountInput.value);
-        if (!isNaN(amount) && amount > 0 && amount <= maxPaymentAmount) {
+        if (!isNaN(amount) && amount >= 5 && amount <= maxPaymentAmount) {
           recordManualPayment(loanId, amount);
         } else {
-          showError(`Please enter a valid amount between 1 and ${maxPaymentAmount}`);
+          showError(`Please enter a valid amount between 5 and ${maxPaymentAmount}`);
           amountInput.focus();
         }
       });
@@ -1690,76 +1766,353 @@ function showApprovalTerms(loanId) {
     }, 50);
 }
 
-async function confirmLoanApproval() {
-    const interestRate = parseFloat(document.getElementById('interestRate').value);
-    const repaymentPeriod = parseInt(document.getElementById('repaymentPeriod').value);
-    const adminNotes = document.getElementById('adminNotes').value;
+// Add this with other global variables
+const loadingStates = new Map();
 
-    try {
-        showLoading('approvalTermsModal');
-        debugLog(`Approving loan ${currentLoanId} with terms: ${interestRate}%, ${repaymentPeriod} days`);
+// Utility functions for loading states (add these if not already present)
+function showLoading(context, message = 'Processing...') {
+    const element = typeof context === 'string' 
+        ? document.getElementById(context) 
+        : context;
+    
+    if (element) {
+        const loadingId = `loading-${Date.now()}`;
+        loadingStates.set(element, loadingId);
         
-        const response = await apiClient(
-            `/api/admin/loan-applications/${currentLoanId}/approve`,
-            'PATCH',
-            { interestRate, repaymentPeriod, adminNotes }
-        );
-
-        const principal = response.data.loan.amount;
-        const interestAmount = principal * (interestRate / 100);
-        const totalAmount = principal + interestAmount;
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = loadingId;
+        loadingDiv.className = 'loading-overlay';
+        loadingDiv.innerHTML = `
+            <div class="spinner"></div>
+            <div class="loading-message">${message}</div>
+        `;
         
-        showSuccess('Loan approved successfully!');
-        closeModal('approvalTermsModal');
-        showLoans('pending');
-        
-        socket.emit('loanApproved', {
-            loanId: currentLoanId,
-            adminId: currentAdmin._id,
-            adminName: currentAdmin.username,
-            principal: principal,
-            interestRate: interestRate,
-            totalAmount: totalAmount,
-            dueDate: response.data.loan.dueDate,
-            userId: response.data.customer._id,
-            timestamp: new Date().toISOString(),
-            signature: createEventSignature(`loanApproved-${currentLoanId}`)
-        });
-    } catch (error) {
-        debugLog(`Loan approval failed: ${error.message}`);
-        showError(error.message || 'Failed to approve loan. Please try again.', 'approvalTermsModal');
-    } finally {
-        hideLoading('approvalTermsModal');
+        element.appendChild(loadingDiv);
+        element.classList.add('loading');
     }
 }
 
+function hideLoading(context) {
+    const element = typeof context === 'string' 
+        ? document.getElementById(context) 
+        : context;
+    
+    if (element) {
+        const loadingId = loadingStates.get(element);
+        if (loadingId) {
+            const loadingElement = document.getElementById(loadingId);
+            if (loadingElement) loadingElement.remove();
+            loadingStates.delete(element);
+        }
+        element.classList.remove('loading');
+    }
+}
+
+// ==================== ENHANCED LOAN APPROVAL FLOW ====================
+async function confirmLoanApproval() {
+  // Get input values with proper type conversion
+  const interestRate = Number(document.getElementById('interestRate').value);
+  const repaymentPeriod = Number(document.getElementById('repaymentPeriod').value);
+  const adminNotes = document.getElementById('adminNotes').value.trim();
+
+  // Validate inputs with detailed error messages
+  const validationErrors = [];
+  
+  if (isNaN(interestRate)) {
+    validationErrors.push('Interest rate must be a number');
+  } else if (interestRate < 5 || interestRate > 30) {
+    validationErrors.push('Interest rate must be between 5% and 30%');
+  }
+
+  if (isNaN(repaymentPeriod)) {
+    validationErrors.push('Repayment period must be a number');
+  } else if (repaymentPeriod < 7 || repaymentPeriod > 90) {
+    validationErrors.push('Repayment period must be between 7 and 90 days');
+  }
+
+  if (validationErrors.length > 0) {
+    showError(`Validation failed: ${validationErrors.join('; ')}`, 'approval-error-message');
+    return;
+  }
+
+  try {
+    showLoading('approvalTermsModal', 'Processing approval...');
+    debugLog(`Initiating loan approval for ${currentLoanId}`, {
+      interestRate,
+      repaymentPeriod,
+      adminNotes: adminNotes.length > 0 ? 'Notes provided' : 'No notes'
+    });
+
+    const response = await apiClient(
+      `/api/admin/loan-applications/${currentLoanId}/approve`,
+      'PATCH',
+      { 
+        interestRate, 
+        repaymentPeriod, 
+        adminNotes: adminNotes || undefined // Only send if exists
+      },
+      { timeout: 30000 } // 30 second timeout
+    );
+
+    if (!response.success) {
+      throw new Error(response.message || 'Approval failed without error message');
+    }
+
+    // Calculate financial details for notification
+    const principal = response.data.terms.principal;
+    const totalAmount = response.data.terms.totalAmount;
+    const dueDate = new Date(response.data.terms.dueDate).toLocaleDateString();
+
+    // Show success feedback
+    showNotification(
+      `Successfully approved loan of KES ${principal.toLocaleString()} (Total: KES ${totalAmount.toLocaleString()})`,
+      'success'
+    );
+    
+    // Close modal and refresh data
+    closeModal('approvalTermsModal');
+    
+    // Parallel data refreshes
+    await Promise.allSettled([
+      showLoans('pending'),
+      showLoans('active'),
+      currentCustomerId && loadCustomerProfile(currentCustomerId)
+    ]);
+
+    // Emit real-time updates
+    socket.emit('loanApproved', {
+      loanId: currentLoanId,
+      adminId: currentAdmin._id,
+      adminName: currentAdmin.username,
+      principal,
+      interestRate,
+      totalAmount,
+      dueDate,
+      customerId: response.data.customer.id,
+      timestamp: new Date().toISOString(),
+      signature: createEventSignature(`loanApproved-${currentLoanId}`),
+      metadata: {
+        repaymentPeriod,
+        processedAt: new Date().toISOString()
+      }
+    });
+
+    // Log successful approval
+    debugLog('Loan approval completed successfully', {
+      loanId: currentLoanId,
+      principal,
+      totalAmount
+    });
+
+  } catch (error) {
+    console.error('Loan approval error:', error);
+    
+    // Enhanced error handling
+    let userErrorMessage = 'Failed to approve loan';
+    let debugMessage = error.message;
+
+    if (error.response?.data) {
+      const serverError = error.response.data;
+      
+      if (serverError.code === 'CREDIT_LIMIT_EXCEEDED') {
+        userErrorMessage = `Credit limit exceeded: ${serverError.message}`;
+        debugMessage += ` | Available: ${serverError.details?.availableLimit}`;
+      } 
+      else if (serverError.code === 'INVALID_LOAN_STATUS') {
+        userErrorMessage = `Loan is already ${serverError.currentStatus}`;
+      }
+      else if (serverError.systemError) {
+        debugMessage += ` | Server detail: ${serverError.systemError}`;
+      }
+    } 
+    else if (error.name === 'AbortError') {
+      userErrorMessage = 'Request timed out. Please try again.';
+    }
+
+    // Show error to user
+    showError(userErrorMessage, 'approval-error-message');
+    
+    // Detailed debug logging
+    debugLog(`Approval failed: ${debugMessage}`, {
+      loanId: currentLoanId,
+      error: error.name,
+      status: error.response?.status
+    });
+
+    // Notify admins of failure
+    socket.emit('adminNotification', {
+      type: 'loan-approval-failed',
+      message: `Failed to approve loan ${currentLoanId}`,
+      error: userErrorMessage,
+      timestamp: new Date().toISOString()
+    });
+  } finally {
+    hideLoading('approvalTermsModal');
+    
+    // Clear sensitive fields
+    document.getElementById('adminNotes').value = '';
+  }
+}
+
+// ==================== ENHANCED LOAN REJECTION FLOW ====================
 async function processLoan(loanId, action) {
     if (action === 'reject') {
-        const reason = prompt('Rejection reason:');
-        if (!reason) return;
+        // Create a custom rejection modal instead of using prompt
+        const modal = document.getElementById('rejectionModal') || createRejectionModal();
+        modal.style.display = 'block';
+        
+        // Set up event listeners for the modal
+        document.getElementById('confirm-rejection-btn').onclick = async () => {
+            const reason = document.getElementById('rejectionReason').value.trim();
+            if (!reason) {
+                showError('Rejection reason is required', 'rejection-error-message');
+                return;
+            }
 
-        try {
-            showLoading('loans');
-            debugLog(`Rejecting loan ${loanId}: ${reason}`);
-            await apiClient(`/api/admin/loan-applications/${loanId}/reject`, 'PATCH', { reason });
-            
-            socket.emit('loanUpdate', {
-                loanId,
-                status: 'rejected',
-                adminName: currentAdmin.username,
-                timestamp: new Date().toISOString(),
-                signature: createEventSignature(`loanRejected-${loanId}`)
-            });
-            
-            showSuccess('Loan rejected successfully');
-            showLoans('pending');
-        } catch (error) {
-            debugLog(`Loan rejection failed: ${error.message}`);
-            showError(error.message || 'Failed to reject loan');
-        } finally {
-            hideLoading('loans');
-        }
+            try {
+                showLoading('rejectionModal', 'Processing rejection...');
+                debugLog(`Rejecting loan ${loanId}`, { reason: reason.substring(0, 50) + (reason.length > 50 ? '...' : '') });
+
+                const response = await apiClient(
+                    `/api/admin/loan-applications/${loanId}/reject`, 
+                    'PATCH', 
+                    { reason },
+                    { timeout: 15000 }
+                );
+
+                if (!response.success) {
+                    throw new Error(response.message || 'Rejection failed without error message');
+                }
+
+                // Show success feedback
+                showNotification('Loan rejected successfully', 'warning');
+                closeModal('rejectionModal');
+                
+                // Refresh data
+                await showLoans('pending');
+                
+                // Emit real-time updates
+                socket.emit('loanUpdate', {
+                    loanId,
+                    status: 'rejected',
+                    adminName: currentAdmin.username,
+                    reason: reason.substring(0, 100), // Truncate long reasons
+                    timestamp: new Date().toISOString(),
+                    signature: createEventSignature(`loanRejected-${loanId}`)
+                });
+
+                // Log successful rejection
+                debugLog('Loan rejection completed', {
+                    loanId,
+                    admin: currentAdmin.username
+                });
+
+            } catch (error) {
+                console.error('Loan rejection error:', error);
+                
+                let userErrorMessage = 'Failed to reject loan';
+                if (error.response?.data?.code === 'INVALID_LOAN_STATUS') {
+                    userErrorMessage = `Loan is already ${error.response.data.currentStatus}`;
+                }
+
+                showError(userErrorMessage, 'rejection-error-message');
+                
+                debugLog(`Rejection failed: ${error.message}`, {
+                    loanId,
+                    error: error.name,
+                    status: error.response?.status
+                });
+            } finally {
+                hideLoading('rejectionModal');
+            }
+        };
     }
+}
+
+function createRejectionModal() {
+    const modal = document.createElement('div');
+    modal.id = 'rejectionModal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal('rejectionModal')">&times;</span>
+            <h3>Reject Loan Application</h3>
+            <div class="form-group">
+                <label for="rejectionReason">Reason for Rejection (required)</label>
+                <textarea id="rejectionReason" rows="4" required 
+                          placeholder="Provide detailed reason for rejection"></textarea>
+            </div>
+            <div id="rejection-error-message" class="error-message"></div>
+            <button id="confirm-rejection-btn" class="luxury-btn danger">
+                CONFIRM REJECTION
+            </button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    return modal;
+}
+
+// ==================== IMPROVED APPROVAL TERMS MODAL ====================
+function showApprovalTerms(loanId) {
+    currentLoanId = loanId;
+    const modal = document.getElementById('approvalTermsModal');
+    
+    // Create modal if it doesn't exist
+    if (!document.getElementById('approvalTermsModalContent')) {
+        modal.innerHTML = `
+            <div class="modal-content" id="approvalTermsModalContent">
+                <span class="close-modal" onclick="closeModal('approvalTermsModal')">&times;</span>
+                <h3>Set Loan Approval Terms</h3>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="interestRate">Interest Rate (%)</label>
+                        <input type="number" id="interestRate" value="15" min="5" max="30" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label for="repaymentPeriod">Repayment Period (Days)</label>
+                        <input type="number" id="repaymentPeriod" value="30" min="7" max="90">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="adminNotes">Admin Notes</label>
+                    <textarea id="adminNotes" rows="3" 
+                              placeholder="Optional notes about this approval"></textarea>
+                </div>
+                
+                <div class="form-actions">
+                    <button id="confirm-approval-btn" class="luxury-btn" onclick="confirmLoanApproval()">
+                        <i class="fas fa-check-circle"></i> CONFIRM APPROVAL
+                    </button>
+                    <button class="luxury-btn secondary" onclick="closeModal('approvalTermsModal')">
+                        <i class="fas fa-times"></i> CANCEL
+                    </button>
+                </div>
+                
+                <div id="approval-error-message" class="error-message"></div>
+                
+                <div class="modal-footer">
+                    <small>All approvals are logged and audited</small>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Reset form state
+    document.getElementById('interestRate').value = '15';
+    document.getElementById('repaymentPeriod').value = '30';
+    document.getElementById('adminNotes').value = '';
+    document.getElementById('approval-error-message').textContent = '';
+    
+    // Show modal with animation
+    modal.style.display = 'block';
+    setTimeout(() => {
+        modal.querySelector('.modal-content').classList.add('show');
+        document.getElementById('interestRate').focus();
+    }, 10);
+    
+    debugLog('Showing approval terms for loan', { loanId });
 }
 
 // ==================== PAYMENT MANAGEMENT ====================
@@ -1868,6 +2221,14 @@ async function approvePayment(paymentId) {
             { timeout: 30000 }
         );
         
+        // Add validation for minimum amount (5 KES)
+        if (response.data?.amount && response.data.amount < 5) {
+            throw {
+                code: 'MINIMUM_AMOUNT',
+                message: 'Payment amount below minimum (5 KES)'
+            };
+        }
+        
         showNotification('Payment approved successfully!', 'success');
         
         if (row) {
@@ -1895,7 +2256,11 @@ async function approvePayment(paymentId) {
     } catch (error) {
         console.error('Approval failed:', error);
         
-        if (error.code === 251 || error.code === 'NoSuchTransaction') {
+        // Enhanced error handling for minimum amount validation
+        if (error.code === 'MINIMUM_AMOUNT') {
+            showNotification(error.message, 'error');
+        }
+        else if (error.code === 251 || error.code === 'NoSuchTransaction') {
             showNotification('Transaction error. Please try approving again.', 'error', 5000);
         } 
         else if (error.name === 'AbortError' || error.code === 'ECONNABORTED') {
@@ -2101,25 +2466,46 @@ function updatePendingCount(change) {
 }
 
 // ==================== UTILITY FUNCTIONS ====================
-function showLoading(context, message = 'Loading...') {
+function showLoading(context, message = 'Processing...') {
     const element = typeof context === 'string' 
         ? document.getElementById(context) 
         : context;
     
-    if (element) {
-        const loadingId = `loading-${Date.now()}`;
-        loadingStates.set(element, loadingId);
-        
-        element.innerHTML = `
-            <div class="loading-overlay" id="${loadingId}">
-                <div class="spinner"></div>
-                <div class="loading-message">${message}</div>
-            </div>
-            ${element.innerHTML}
-        `;
-        
-        element.classList.add('loading');
+    if (!element) {
+        console.warn('Show loading: Element not found', context);
+        return;
     }
+
+    // Check if already showing loading state
+    if (loadingStates.has(element)) {
+        return;
+    }
+
+    const loadingId = `loading-${Date.now()}`;
+    loadingStates.set(element, loadingId);
+    
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = loadingId;
+    loadingDiv.className = 'loading-overlay';
+    loadingDiv.innerHTML = `
+        <div class="spinner"></div>
+        <div class="loading-message">${message}</div>
+    `;
+    
+    // Preserve original element content
+    const contentContainer = document.createElement('div');
+    contentContainer.className = 'original-content';
+    contentContainer.style.display = 'none';
+    
+    // Move all child nodes to the content container
+    while (element.firstChild) {
+        contentContainer.appendChild(element.firstChild);
+    }
+    
+    // Add both containers to the element
+    element.appendChild(contentContainer);
+    element.appendChild(loadingDiv);
+    element.classList.add('loading');
 }
 
 function hideLoading(context) {
@@ -2127,15 +2513,31 @@ function hideLoading(context) {
         ? document.getElementById(context) 
         : context;
     
-    if (element) {
-        const loadingId = loadingStates.get(element);
-        if (loadingId) {
-            const overlay = document.getElementById(loadingId);
-            if (overlay) overlay.remove();
-            loadingStates.delete(element);
-        }
-        element.classList.remove('loading');
+    if (!element) {
+        console.warn('Hide loading: Element not found', context);
+        return;
     }
+
+    const loadingId = loadingStates.get(element);
+    if (loadingId) {
+        const loadingElement = document.getElementById(loadingId);
+        if (loadingElement) {
+            loadingElement.remove();
+        }
+        loadingStates.delete(element);
+    }
+    
+    // Restore original content
+    const contentContainer = element.querySelector('.original-content');
+    if (contentContainer) {
+        contentContainer.style.display = '';
+        while (contentContainer.firstChild) {
+            element.appendChild(contentContainer.firstChild);
+        }
+        contentContainer.remove();
+    }
+    
+    element.classList.remove('loading');
 }
 
 function showError(message, element) {
@@ -2674,6 +3076,11 @@ function downloadLoanDocuments(loanId) {
 
 async function recordManualPayment(loanId, amount) {
   try {
+    // Add minimum amount validation
+    if (amount < 5) {
+        throw new Error('Minimum payment amount is 5 KES');
+    }
+
     const reference = `MANUAL-${Date.now()}`;
     const response = await apiClient(
       `/api/admin/loans/${loanId}/record-payment`,
@@ -2698,34 +3105,122 @@ function calculateDaysRemaining(dueDate) {
     const now = new Date();
     const due = new Date(dueDate);
     const diffTime = due - now;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    // Changed from Math.ceil to Math.floor to match user profile calculation
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
 }
 
-// Card click handler utility
-function handleCardClick(card, callback) {
-    let isProcessing = false;
-    
-    card.addEventListener('click', async (e) => {
-        if (isProcessing) return;
-        isProcessing = true;
-        
-        // Add visual feedback
-        card.style.opacity = '0.7';
-        
-        try {
-            await callback(e);
-        } catch (error) {
-            console.error('Card click error:', error);
-        } finally {
-            // Restore card appearance
-            setTimeout(() => {
-                card.style.opacity = '1';
-                isProcessing = false;
-            }, 300);
-        }
+// ==================== ENHANCED CARD MANAGEMENT ====================
+const CardManager = {
+  // Track card states
+  states: new Map(), // Stores {cardId: {isOpen: boolean, isProcessing: boolean}}
+  
+  // Initialize card with click handler
+  initCard: function(cardId, onClickCallback) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    // Initialize state tracking
+    this.states.set(cardId, {
+      isOpen: false,
+      isProcessing: false
     });
-}
+
+    // Add click handler with debouncing
+    card.addEventListener('click', async (e) => {
+      await this.handleCardClick(cardId, onClickCallback, e);
+    });
+
+    // Add ARIA attributes for accessibility
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-expanded', 'false');
+    card.setAttribute('tabindex', '0');
+    
+    return card;
+  },
+
+  // Handle card click with state management
+  handleCardClick: async function(cardId, callback, event) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    const cardState = this.states.get(cardId);
+    if (cardState.isProcessing) return;
+
+    try {
+      cardState.isProcessing = true;
+      this._addVisualFeedback(card);
+
+      // Close other cards before opening new one
+      if (!cardState.isOpen) {
+        this.closeAllCards();
+      }
+
+      // Toggle card state
+      cardState.isOpen = !cardState.isOpen;
+      card.classList.toggle('active', cardState.isOpen);
+      card.setAttribute('aria-expanded', cardState.isOpen.toString());
+
+      // Execute callback if provided
+      if (typeof callback === 'function') {
+        await callback(event, cardState.isOpen);
+      }
+
+      // Scroll to card if opening
+      if (cardState.isOpen) {
+        this._scrollToCard(card);
+      }
+
+    } catch (error) {
+      console.error(`Card ${cardId} click error:`, error);
+      // Reset state on error
+      cardState.isOpen = false;
+      card.classList.remove('active');
+      card.setAttribute('aria-expanded', 'false');
+    } finally {
+      setTimeout(() => {
+        this._removeVisualFeedback(card);
+        cardState.isProcessing = false;
+      }, 300);
+    }
+  },
+
+  // Close all cards except optionally specified one
+  closeAllCards: function(exceptCardId = null) {
+    this.states.forEach((state, cardId) => {
+      if (cardId !== exceptCardId && state.isOpen) {
+        const card = document.getElementById(cardId);
+        if (card) {
+          state.isOpen = false;
+          card.classList.remove('active');
+          card.setAttribute('aria-expanded', 'false');
+        }
+      }
+    });
+  },
+
+  // Private helper methods
+  _addVisualFeedback: function(card) {
+    card.style.transition = 'opacity 0.2s ease';
+    card.style.opacity = '0.7';
+    card.style.cursor = 'wait';
+  },
+
+  _removeVisualFeedback: function(card) {
+    card.style.opacity = '1';
+    card.style.cursor = 'pointer';
+  },
+
+  _scrollToCard: function(card) {
+    setTimeout(() => {
+      card.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'start'
+      });
+    }, 100);
+  }
+};
 
 // Modal management
 let activeModal = null;
