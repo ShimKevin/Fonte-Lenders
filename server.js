@@ -346,6 +346,16 @@ async function verifyIDWithJenga(idNumber, fullName) {
 }
 
 // ==================== MODELS ====================
+const adminActivityLogSchema = new mongoose.Schema({
+  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true },
+  action: { type: String, required: true },
+  targetId: mongoose.Schema.Types.ObjectId,
+  details: Object,
+  ipAddress: String
+}, { timestamps: true });
+
+const AdminActivityLog = mongoose.model('AdminActivityLog', adminActivityLogSchema);
+
 const paymentSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
   loanId: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanApplication', required: true },
@@ -1121,36 +1131,86 @@ app.get('/api/admin/validate-token', authenticateAdmin, (req, res) => {
   });
 });
 
-// ==================== UPDATED CUSTOMER SEARCH ====================
+// ==================== ENHANCED CUSTOMER SEARCH ENDPOINT ====================
 app.get('/api/admin/customers', authenticateAdmin, async (req, res) => {
-  try {
-    const { search } = req.query;
-    const filter = search ? {
-      $or: [
-        { customerId: search },
-        { fullName: new RegExp(search, 'i') },
-        { phoneNumber: search }
-      ]
-    } : {};
+    try {
+        const { search, page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+        
+        // Input validation
+        const numericPage = Math.max(1, parseInt(page));
+        const numericLimit = Math.min(Math.max(1, parseInt(limit)), 100); // Cap at 100 items per page
+        const sortDirection = sortOrder === 'asc' ? 1 : -1;
+        
+        // Build search filter with regex for partial matching
+        const filter = search ? {
+            $or: [
+                { customerId: { $regex: escapeRegex(search), $options: 'i' } },
+                { fullName: { $regex: escapeRegex(search), $options: 'i' } },
+                { phoneNumber: { $regex: escapeRegex(search), $options: 'i' } },
+                { email: { $regex: escapeRegex(search), $options: 'i' } }
+            ]
+        } : {};
 
-    // Return all matching customers without pagination
-    const customers = await Customer.find(filter)
-      .select('-password -__v')
-      .lean();
+        // Add verification status filter if provided
+        if (req.query.verificationStatus) {
+            filter.verificationStatus = req.query.verificationStatus;
+        }
 
-    res.json({
-      success: true,
-      customers
-    });
-  } catch (error) {
-    console.error('Customers fetch error:', error);
-    res.status(500).json({ 
-      success: false, 
-      code: 'CUSTOMERS_ERROR', 
-      message: 'Failed to fetch customers' 
-    });
-  }
+        // Add active loan filter if provided
+        if (req.query.hasActiveLoan === 'true') {
+            filter.activeLoan = { $exists: true, $ne: null };
+        } else if (req.query.hasActiveLoan === 'false') {
+            filter.activeLoan = null;
+        }
+
+        // Execute query with pagination
+        const [customers, total] = await Promise.all([
+            Customer.find(filter)
+                .select('-password -__v')
+                .populate({
+                    path: 'activeLoan',
+                    select: 'amount status dueDate'
+                })
+                .sort({ [sortBy]: sortDirection })
+                .skip((numericPage - 1) * numericLimit)
+                .limit(numericLimit)
+                .lean(),
+            
+            Customer.countDocuments(filter)
+        ]);
+
+        res.json({
+            success: true,
+            data: customers || [],
+            pagination: {
+                page: numericPage,
+                limit: numericLimit,
+                total,
+                pages: Math.ceil(total / numericLimit)
+            },
+            filters: {
+                searchTerm: search || '',
+                verificationStatus: req.query.verificationStatus || 'all',
+                hasActiveLoan: req.query.hasActiveLoan || 'all'
+            }
+        });
+
+    } catch (error) {
+        console.error('Customer search error:', error);
+        res.status(500).json({ 
+            success: false, 
+            code: 'SERVER_ERROR',
+            message: 'Failed to retrieve customer data',
+            systemError: process.env.NODE_ENV === 'development' ? error.message : undefined,
+            timestamp: new Date().toISOString()
+        });
+    }
 });
+
+// Helper function to escape regex special characters
+function escapeRegex(text) {
+    return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+}
 
 // Get customer details including active loan
 app.get('/api/admin/customers/:id', authenticateAdmin, async (req, res) => {
@@ -1250,12 +1310,12 @@ app.delete('/api/admin/customers/:id', authenticateAdmin, async (req, res) => {
 app.put('/api/admin/customers/:id/limit', authenticateAdmin, async (req, res) => {
   try {
     const { newLimit } = req.body;
-    const numericLimit = Number(newLimit);
     
-    if (isNaN(numericLimit) || numericLimit < 0) {
+    // Enhanced validation
+    if (typeof newLimit !== 'number' || newLimit < 0 || !Number.isFinite(newLimit)) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Valid loan limit (non-negative number) is required' 
+        message: 'Valid loan limit (non-negative finite number) is required' 
       });
     }
 
@@ -1268,36 +1328,48 @@ app.put('/api/admin/customers/:id/limit', authenticateAdmin, async (req, res) =>
     }
 
     const previousLimit = customer.maxLoanLimit;
-    customer.maxLoanLimit = numericLimit;
-    await customer.save();
+    customer.maxLoanLimit = newLimit;
+    const updatedCustomer = await customer.save();
 
-    // Notify user
+    // Notify user with enhanced details
     io.to(`user_${customer._id}`).emit('loanLimitUpdate', {
       newLimit: customer.maxLoanLimit,
-      updatedAt: new Date()
+      previousLimit,
+      updatedAt: new Date(),
+      message: 'Your loan limit has been updated'
     });
 
-    // Notify admin with enhanced details
+    // Notify admin with comprehensive details
     io.to('adminRoom').emit('customerUpdate', {
       customerId: customer._id,
       fullName: customer.fullName,
+      email: customer.email,
       phoneNumber: customer.phoneNumber,
       updateType: 'loanLimit',
       previousLimit,
       newLimit: customer.maxLoanLimit,
+      updatedBy: req.admin._id, // Assuming admin info is available
       updatedAt: new Date()
     });
 
     res.json({ 
       success: true, 
-      message: 'Loan limit updated successfully', 
-      newLimit: customer.maxLoanLimit 
+      message: 'Loan limit updated successfully',
+      newLimit: customer.maxLoanLimit,
+      customer: {
+        _id: updatedCustomer._id,
+        fullName: updatedCustomer.fullName,
+        email: updatedCustomer.email,
+        maxLoanLimit: updatedCustomer.maxLoanLimit
+        // Exclude sensitive fields
+      }
     });
   } catch (error) {
     console.error('Update loan limit error:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to update loan limit' 
+      message: 'Failed to update loan limit',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -1403,231 +1475,264 @@ app.get('/api/admin/loan-applications/:id', authenticateAdmin, async (req, res) 
 // ==================== ENHANCED LOAN APPROVAL ENDPOINT ====================
 app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
-
+  const startTime = Date.now();
+  
   try {
-    const { interestRate, repaymentPeriod, adminNotes } = req.body;
-    
-    // Enhanced validation with range checks
-    if (typeof interestRate === 'undefined' || typeof repaymentPeriod === 'undefined') {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        code: 'MISSING_REQUIRED_FIELDS',
-        message: 'Both interest rate and repayment period are required',
-        fields: ['interestRate', 'repaymentPeriod']
-      });
-    }
+    await session.withTransaction(async () => {
+      const { interestRate, repaymentPeriod, adminNotes } = req.body;
+      
+      // Enhanced validation with range checks
+      if (typeof interestRate === 'undefined' || typeof repaymentPeriod === 'undefined') {
+        throw {
+          status: 400,
+          code: 'MISSING_REQUIRED_FIELDS',
+          message: 'Both interest rate and repayment period are required',
+          fields: ['interestRate', 'repaymentPeriod']
+        };
+      }
 
-    const numericInterestRate = parseFloat(interestRate);
-    const numericRepaymentPeriod = parseInt(repaymentPeriod);
+      const numericInterestRate = parseFloat(interestRate);
+      const numericRepaymentPeriod = parseInt(repaymentPeriod);
 
-    if (isNaN(numericInterestRate) || numericInterestRate < 5 || numericInterestRate > 30) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        code: 'INVALID_INTEREST_RATE',
-        message: 'Interest rate must be a number between 5% and 30%',
-        field: 'interestRate',
-        min: 5,
-        max: 30
-      });
-    }
+      if (isNaN(numericInterestRate)) {
+        throw {
+          status: 400,
+          code: 'INVALID_INTEREST_RATE',
+          message: 'Interest rate must be a valid number',
+          field: 'interestRate'
+        };
+      }
 
-    if (isNaN(numericRepaymentPeriod) || numericRepaymentPeriod < 7 || numericRepaymentPeriod > 90) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        code: 'INVALID_REPAYMENT_PERIOD',
-        message: 'Repayment period must be between 7 and 90 days',
-        field: 'repaymentPeriod',
-        min: 7,
-        max: 90
-      });
-    }
+      if (numericInterestRate < 5 || numericInterestRate > 30) {
+        throw {
+          status: 400,
+          code: 'INTEREST_RATE_OUT_OF_RANGE',
+          message: 'Interest rate must be between 5% and 30%',
+          field: 'interestRate',
+          min: 5,
+          max: 30
+        };
+      }
 
-    // Find loan with transaction safety
-    const loan = await LoanApplication.findById(req.params.id)
-      .populate('userId', 'fullName phoneNumber email maxLoanLimit currentLoanBalance creditScore')
-      .session(session);
+      if (isNaN(numericRepaymentPeriod)) {
+        throw {
+          status: 400,
+          code: 'INVALID_REPAYMENT_PERIOD',
+          message: 'Repayment period must be a valid number',
+          field: 'repaymentPeriod'
+        };
+      }
 
-    if (!loan) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        code: 'LOAN_NOT_FOUND',
-        message: 'Loan application not found'
-      });
-    }
+      if (numericRepaymentPeriod < 7 || numericRepaymentPeriod > 90) {
+        throw {
+          status: 400,
+          code: 'REPAYMENT_PERIOD_OUT_OF_RANGE',
+          message: 'Repayment period must be between 7 and 90 days',
+          field: 'repaymentPeriod',
+          min: 7,
+          max: 90
+        };
+      }
 
-    // Status validation with detailed message
-    if (loan.status !== 'pending') {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        code: 'INVALID_LOAN_STATUS',
-        message: `Cannot approve loan with status: ${loan.status}`,
-        currentStatus: loan.status,
-        requiredStatus: 'pending'
-      });
-    }
+      // Find loan with transaction safety
+      const loan = await LoanApplication.findById(req.params.id)
+        .populate('userId', 'fullName phoneNumber email maxLoanLimit currentLoanBalance creditScore')
+        .session(session);
 
-    // Calculate loan terms with precision
-    const principal = parseFloat(loan.amount.toFixed(2));
-    const interestAmount = parseFloat((principal * (numericInterestRate / 100)).toFixed(2));
-    const totalAmount = parseFloat((principal + interestAmount).toFixed(2));
-    
-    // Set due date with timezone consideration
-    const dueDate = new Date();
-    dueDate.setUTCHours(23, 59, 59, 999); // End of day
-    dueDate.setUTCDate(dueDate.getUTCDate() + numericRepaymentPeriod);
+      if (!loan) {
+        throw {
+          status: 404,
+          code: 'LOAN_NOT_FOUND',
+          message: 'Loan application not found'
+        };
+      }
 
-    // Enhanced repayment schedule with metadata
-    const repaymentSchedule = [{
-      dueDate: dueDate,
-      amount: totalAmount,
-      paidAmount: 0,
-      status: 'pending',
-      paidAt: null,
-      isOverdue: false,
-      daysOverdue: 0,
-      penaltyApplied: 0
-    }];
+      // Status validation with detailed message
+      if (loan.status !== 'pending') {
+        throw {
+          status: 400,
+          code: 'INVALID_LOAN_STATUS',
+          message: `Cannot approve loan with status: ${loan.status}`,
+          currentStatus: loan.status,
+          requiredStatus: 'pending'
+        };
+      }
 
-    // Update loan with additional tracking fields
-    const customer = loan.userId;
-    const availableLimit = parseFloat((customer.maxLoanLimit - customer.currentLoanBalance).toFixed(2));
-    
-    // Enhanced credit limit check with detailed response
-    if (totalAmount > availableLimit) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        code: 'CREDIT_LIMIT_EXCEEDED',
-        message: 'Loan amount exceeds available credit limit',
-        details: {
-          requestedAmount: totalAmount,
-          availableLimit: availableLimit,
-          difference: parseFloat((totalAmount - availableLimit).toFixed(2)),
-          currentBalance: customer.currentLoanBalance,
-          maxLimit: customer.maxLoanLimit
-        }
-      });
-    }
+      // Calculate loan terms with precision
+      const principal = parseFloat(loan.amount.toFixed(2));
+      const interestAmount = parseFloat((principal * (numericInterestRate / 100)).toFixed(2));
+      const totalAmount = parseFloat((principal + interestAmount).toFixed(2));
+      
+      // Set due date with timezone consideration
+      const dueDate = new Date();
+      dueDate.setUTCHours(23, 59, 59, 999); // End of day
+      dueDate.setUTCDate(dueDate.getUTCDate() + numericRepaymentPeriod);
 
-    // Prepare loan updates
-    Object.assign(loan, {
-      status: 'active',
-      principal: principal,
-      interestRate: numericInterestRate,
-      interestAmount: interestAmount,
-      totalAmount: totalAmount,
-      dueDate: dueDate,
-      repaymentSchedule: repaymentSchedule,
-      approvedAt: new Date(),
-      approvedBy: req.admin._id,
-      adminNotes: adminNotes,
-      markedDefault: false,
-      overdueDays: 0,
-      overdueFees: 0,
-      lastStatusUpdate: new Date(),
-      lastOverdueCalculation: null,
-      creditScoreAtApproval: customer.creditScore
-    });
+      // Enhanced repayment schedule with metadata
+      const repaymentSchedule = [{
+        dueDate: dueDate,
+        amount: totalAmount,
+        paidAmount: 0,
+        status: 'pending',
+        paidAt: null,
+        isOverdue: false,
+        daysOverdue: 0,
+        penaltyApplied: 0
+      }];
 
-    // Update customer with transaction
-    customer.currentLoanBalance = parseFloat((customer.currentLoanBalance + totalAmount).toFixed(2));
-    customer.activeLoan = loan._id;
-    customer.lastLoanApprovalDate = new Date();
+      // Update loan with additional tracking fields
+      const customer = loan.userId;
+      const availableLimit = parseFloat((customer.maxLoanLimit - customer.currentLoanBalance).toFixed(2));
+      
+      // Enhanced credit limit check with detailed response
+      if (totalAmount > availableLimit) {
+        throw {
+          status: 400,
+          code: 'CREDIT_LIMIT_EXCEEDED',
+          message: 'Loan amount exceeds available credit limit',
+          details: {
+            requestedAmount: totalAmount,
+            availableLimit: availableLimit,
+            difference: parseFloat((totalAmount - availableLimit).toFixed(2)),
+            currentBalance: customer.currentLoanBalance,
+            maxLimit: customer.maxLoanLimit
+          }
+        };
+      }
 
-    // Atomic save operations
-    await Promise.all([
-      loan.save({ session }),
-      customer.save({ session }),
-      AdminActivityLog.create([{
-        adminId: req.admin._id,
-        action: 'LOAN_APPROVAL',
-        targetId: loan._id,
-        details: {
-          amount: totalAmount,
-          interestRate: numericInterestRate,
-          repaymentPeriod: numericRepaymentPeriod
-        },
-        ipAddress: req.ip
-      }], { session })
-    ]);
-
-    await session.commitTransaction();
-
-    // Prepare comprehensive response
-    const responseData = {
-      loanId: loan._id,
-      customer: {
-        id: customer._id,
-        name: customer.fullName,
-        phone: customer.phoneNumber
-      },
-      terms: {
+      // Prepare loan updates
+      Object.assign(loan, {
+        status: 'active',
         principal: principal,
         interestRate: numericInterestRate,
         interestAmount: interestAmount,
         totalAmount: totalAmount,
         dueDate: dueDate,
-        repaymentPeriod: numericRepaymentPeriod
-      },
-      timestamps: {
-        approvedAt: loan.approvedAt,
-        createdAt: loan.createdAt
-      }
-    };
+        repaymentSchedule: repaymentSchedule,
+        approvedAt: new Date(),
+        approvedBy: req.admin._id,
+        adminNotes: adminNotes,
+        markedDefault: false,
+        overdueDays: 0,
+        overdueFees: 0,
+        lastStatusUpdate: new Date(),
+        lastOverdueCalculation: null,
+        creditScoreAtApproval: customer.creditScore
+      });
 
-    // Async notifications (won't block response)
-    setImmediate(async () => {
-      try {
-        // Real-time notifications
-        io.to('adminRoom').emit('loanApproved', {
-          ...responseData,
-          adminName: req.admin.username
-        });
+      // Update customer with transaction
+      customer.currentLoanBalance = parseFloat((customer.currentLoanBalance + totalAmount).toFixed(2));
+      customer.activeLoan = loan._id;
+      customer.lastLoanApprovalDate = new Date();
 
-        io.to(`user_${customer._id}`).emit('loanApproved', responseData);
+      // Atomic save operations
+      await Promise.all([
+        loan.save({ session }),
+        customer.save({ session }),
+        AdminActivityLog.create([{
+          adminId: req.admin._id,
+          action: 'LOAN_APPROVAL',
+          targetId: loan._id,
+          details: {
+            amount: totalAmount,
+            interestRate: numericInterestRate,
+            repaymentPeriod: numericRepaymentPeriod,
+            adminNotes: adminNotes
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent']
+        }], { session })
+      ]);
 
-        // Send email if configured
-        if (customer.email && process.env.SEND_EMAILS === 'true') {
-          await sendEmail({
-            to: customer.email,
-            subject: `Loan Approved - KES ${principal.toLocaleString()}`,
-            html: generateLoanApprovalEmail(customer, loan, responseData)
+      // Prepare comprehensive response
+      const responseData = {
+        loanId: loan._id,
+        customer: {
+          id: customer._id,
+          name: customer.fullName,
+          phone: customer.phoneNumber,
+          email: customer.email
+        },
+        terms: {
+          principal: principal,
+          interestRate: numericInterestRate,
+          interestAmount: interestAmount,
+          totalAmount: totalAmount,
+          dueDate: dueDate,
+          repaymentPeriod: numericRepaymentPeriod
+        },
+        timestamps: {
+          approvedAt: loan.approvedAt,
+          createdAt: loan.createdAt
+        },
+        processingTime: Date.now() - startTime
+      };
+
+      // Async notifications (won't block response)
+      setImmediate(async () => {
+        try {
+          // Real-time notifications
+          io.to('adminRoom').emit('loanApproved', {
+            ...responseData,
+            adminName: req.admin.username
           });
+
+          io.to(`user_${customer._id}`).emit('loanApproved', responseData);
+
+          // Send email if configured
+          if (customer.email && process.env.SEND_EMAILS === 'true') {
+            await sendEmail({
+              to: customer.email,
+              subject: `Loan Approved - KES ${principal.toLocaleString()}`,
+              html: generateLoanApprovalEmail(customer, loan, responseData)
+            });
+          }
+
+          // Audit logging
+          await SystemAuditLog.create({
+            event: 'LOAN_APPROVED',
+            entityType: 'LOAN',
+            entityId: loan._id,
+            performedBy: req.admin._id,
+            metadata: responseData,
+            ipAddress: req.ip
+          });
+        } catch (asyncError) {
+          console.error('Async approval tasks error:', asyncError);
+          // Log to error tracking system if available
         }
+      });
 
-        // Audit logging
-        await SystemAuditLog.create({
-          event: 'LOAN_APPROVED',
-          entityType: 'LOAN',
-          entityId: loan._id,
-          performedBy: req.admin._id,
-          metadata: responseData
-        });
-      } catch (asyncError) {
-        console.error('Async approval tasks error:', asyncError);
-      }
+      // Success response
+      res.json({
+        success: true,
+        message: 'Loan approved successfully',
+        data: responseData,
+        metadata: {
+          serverTime: new Date(),
+          processingTime: `${responseData.processingTime}ms`
+        }
+      });
     });
-
-    // Success response
-    res.json({
-      success: true,
-      message: 'Loan approved successfully',
-      data: responseData,
-      metadata: {
-        serverTime: new Date(),
-        processingTime: `${Date.now() - req.startTime}ms`
-      }
-    });
-
   } catch (error) {
-    await session.abortTransaction();
-    
+    // Handle transaction errors
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    // Handle custom error objects
+    if (error.status) {
+      return res.status(error.status).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details && { details: error.details }),
+        ...(error.field && { field: error.field }),
+        ...(error.min !== undefined && { min: error.min }),
+        ...(error.max !== undefined && { max: error.max })
+      });
+    }
+
     console.error('Loan approval error:', error);
     
     // Enhanced error classification
@@ -1650,118 +1755,154 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
 // ==================== UPDATED PAYMENT APPROVAL LOGIC ====================
 app.patch('/api/admin/payments/:id/approve', authenticateAdmin, async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
-
+  const startTime = Date.now();
+  
   try {
-    const payment = await Payment.findById(req.params.id)
-      .populate('userId')
-      .populate('loanId')
-      .session(session);
-    
-    if (!payment) {
-      await session.abortTransaction();
-      return res.status(404).json({ 
-        success: false, 
-        code: 'PAYMENT_NOT_FOUND',
-        message: 'Payment not found' 
-      });
-    }
-
-    const loan = payment.loanId;
-    const customer = payment.userId;
-    const paymentAmount = payment.amount;
-    
-    // Update loan amount paid
-    loan.amountPaid = (loan.amountPaid || 0) + paymentAmount;
-    
-    // Apply payment to installments
-    let remainingAmount = paymentAmount;
-    for (const installment of loan.repaymentSchedule) {
-      if (['pending', 'partial', 'overdue'].includes(installment.status)) {
-        const installmentDue = installment.amount - (installment.paidAmount || 0);
-        const amountToApply = Math.min(remainingAmount, installmentDue);
-        
-        installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
-        installment.paidAt = new Date();
-        
-        // Update status
-        if (installment.paidAmount >= installment.amount) {
-          installment.status = 'paid';
-        } else if (amountToApply > 0) {
-          installment.status = 'partial';
-        }
-        
-        remainingAmount -= amountToApply;
-        
-        if (remainingAmount <= 0) break;
-      }
-    }
-    
-    // Check if loan is fully paid
-    const totalPaid = loan.amountPaid || 0;
-    const totalDue = loan.totalAmount || 0;
-    
-    if (totalPaid >= totalDue) {
-      loan.status = 'completed';
-      customer.activeLoan = null;
-    } else {
-      // Check if any installments are overdue
-      const now = new Date();
-      const hasOverdue = loan.repaymentSchedule.some(installment => 
-        installment.status !== 'paid' && 
-        new Date(installment.dueDate) < now
-      );
+    await session.withTransaction(async () => {
+      const payment = await Payment.findById(req.params.id)
+        .populate('userId')
+        .populate('loanId')
+        .session(session);
       
-      if (hasOverdue) {
-        loan.status = 'overdue';
-      } else {
-        loan.status = 'active';
+      if (!payment) {
+        throw {
+          status: 404,
+          code: 'PAYMENT_NOT_FOUND',
+          message: 'Payment not found'
+        };
       }
-    }
-    
-    // Update customer balance
-    customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - paymentAmount);
-    
-    // Update payment status
-    payment.status = 'approved';
-    payment.completedAt = new Date();
-    payment.approvedBy = req.admin.username;
-    
-    await Promise.all([
-      loan.save({ session }),
-      customer.save({ session }),
-      payment.save({ session })
-    ]);
 
-    await session.commitTransaction();
-    
-    // Notify user
-    io.to(`user_${customer._id}`).emit('paymentApproved', {
-      amount: paymentAmount,
-      newBalance: customer.currentLoanBalance,
-      loanId: loan._id,
-      isFullyPaid: loan.status === 'completed'
-    });
+      const loan = payment.loanId;
+      const customer = payment.userId;
+      const paymentAmount = payment.amount;
+      
+      // Update loan amount paid
+      loan.amountPaid = (loan.amountPaid || 0) + paymentAmount;
+      
+      // Apply payment to installments
+      let remainingAmount = paymentAmount;
+      for (const installment of loan.repaymentSchedule) {
+        if (['pending', 'partial', 'overdue'].includes(installment.status)) {
+          const installmentDue = installment.amount - (installment.paidAmount || 0);
+          const amountToApply = Math.min(remainingAmount, installmentDue);
+          
+          installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
+          installment.paidAt = new Date();
+          
+          // Update status
+          if (installment.paidAmount >= installment.amount) {
+            installment.status = 'paid';
+          } else if (amountToApply > 0) {
+            installment.status = 'partial';
+          }
+          
+          remainingAmount -= amountToApply;
+          
+          if (remainingAmount <= 0) break;
+        }
+      }
+      
+      // Check if loan is fully paid
+      const totalPaid = loan.amountPaid || 0;
+      const totalDue = loan.totalAmount || 0;
+      
+      if (totalPaid >= totalDue) {
+        loan.status = 'completed';
+        customer.activeLoan = null;
+      } else {
+        // Check if any installments are overdue
+        const now = new Date();
+        const hasOverdue = loan.repaymentSchedule.some(installment => 
+          installment.status !== 'paid' && 
+          new Date(installment.dueDate) < now
+        );
+        
+        if (hasOverdue) {
+          loan.status = 'overdue';
+        } else {
+          loan.status = 'active';
+        }
+      }
+      
+      // Update customer balance
+      customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - paymentAmount);
+      
+      // Update payment status
+      payment.status = 'approved';
+      payment.completedAt = new Date();
+      payment.approvedBy = req.admin.username;
+      
+      await Promise.all([
+        loan.save({ session }),
+        customer.save({ session }),
+        payment.save({ session }),
+        AdminActivityLog.create([{
+          adminId: req.admin._id,
+          action: 'PAYMENT_APPROVAL',
+          targetId: payment._id,
+          details: {
+            amount: paymentAmount,
+            loanId: loan._id,
+            customerId: customer._id
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent']
+        }], { session })
+      ]);
 
-    res.json({ 
-      success: true,
-      data: {
+      const responseData = {
         userId: customer._id,
         loanId: loan._id,
         amount: paymentAmount,
         newBalance: customer.currentLoanBalance,
-        loanStatus: loan.status
-      }
+        loanStatus: loan.status,
+        processingTime: Date.now() - startTime
+      };
+
+      // Async notifications
+      setImmediate(() => {
+        try {
+          io.to(`user_${customer._id}`).emit('paymentApproved', responseData);
+          io.to('adminRoom').emit('paymentProcessed', {
+            ...responseData,
+            adminName: req.admin.username
+          });
+        } catch (socketError) {
+          console.error('Socket notification error:', socketError);
+        }
+      });
+
+      res.json({ 
+        success: true,
+        data: responseData,
+        metadata: {
+          serverTime: new Date(),
+          processingTime: `${responseData.processingTime}ms`
+        }
+      });
     });
-    
   } catch (error) {
-    await session.abortTransaction();
+    // Handle transaction errors
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    // Handle custom error objects
+    if (error.status) {
+      return res.status(error.status).json({
+        success: false,
+        code: error.code,
+        message: error.message
+      });
+    }
+
     console.error('Payment approval error:', error);
     res.status(500).json({
       success: false,
       code: 'PAYMENT_APPROVAL_FAILED',
       message: 'Failed to approve payment',
-      systemError: process.env.NODE_ENV === 'development' ? error.message : undefined
+      systemError: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      timestamp: new Date()
     });
   } finally {
     await session.endSession();
@@ -1790,19 +1931,19 @@ function generateLoanApprovalEmail(customer, loan, loanDetails) {
           </tr>
           <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Principal Amount</td>
-            <td style="padding: 8px; border: 1px solid #ddd;">KES ${loanDetails.principal.toLocaleString()}</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">KES ${loanDetails.terms.principal.toLocaleString()}</td>
           </tr>
           <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Interest Rate</td>
-            <td style="padding: 8px; border: 1px solid #ddd;">${loanDetails.interestRate}%</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">${loanDetails.terms.interestRate}%</td>
           </tr>
           <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Total Repayable</td>
-            <td style="padding: 8px; border: 1px solid #ddd;">KES ${loanDetails.totalAmount.toLocaleString()}</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">KES ${loanDetails.terms.totalAmount.toLocaleString()}</td>
           </tr>
           <tr>
             <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Due Date</td>
-            <td style="padding: 8px; border: 1px solid #ddd;">${loanDetails.dueDate.toLocaleDateString()}</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">${new Date(loanDetails.terms.dueDate).toLocaleDateString()}</td>
           </tr>
         </table>
       </div>
@@ -1818,7 +1959,6 @@ function generateLoanApprovalEmail(customer, loan, loanDetails) {
     </div>
   `;
 }
-
 // ==================== LOAN REJECTION ENDPOINT ====================
 app.patch('/api/admin/loan-applications/:id/reject', authenticateAdmin, async (req, res) => {
   try {
@@ -3406,15 +3546,151 @@ async function sendSMSNotification(phoneNumber, application) {
 }
 
 // ==================== ERROR HANDLER ====================
+// ==================== ENHANCED ERROR HANDLER ====================
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
+  // Log the full error in development, sanitized version in production
+  if (process.env.NODE_ENV === 'development') {
+    console.error('\x1b[31m', '=== ERROR DETAILS ==='); // Red color for errors
+    console.error(err);
+    console.error('Stack:', err.stack);
+    console.error('\x1b[0m'); // Reset color
+  } else {
+    console.error(`[${new Date().toISOString()}] Error: ${err.message}`);
+  }
+
+  // Handle specific error types
+  if (err instanceof mongoose.Error.TransactionError) {
+    return res.status(500).json({
+      success: false,
+      code: 'TRANSACTION_ERROR',
+      message: 'Database transaction failed',
+      systemError: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      timestamp: new Date().toISOString(),
+      requestId: req.id || null
+    });
+  }
+
+  if (err instanceof mongoose.Error.ValidationError) {
+    const errors = {};
+    Object.keys(err.errors).forEach(key => {
+      errors[key] = err.errors[key].message;
+    });
+
+    return res.status(400).json({
+      success: false,
+      code: 'VALIDATION_ERROR',
+      message: 'Validation failed',
+      errors,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  if (err.name === 'UnauthorizedError') {
+    return res.status(401).json({
+      success: false,
+      code: 'AUTHENTICATION_ERROR',
+      message: 'Authentication failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({
+      success: false,
+      code: 'FILE_TOO_LARGE',
+      message: 'File size exceeds the limit',
+      maxSize: process.env.MAX_FILE_SIZE || '5MB',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // Handle JWT errors
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({
+      success: false,
+      code: 'INVALID_TOKEN',
+      message: 'Invalid authentication token',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  if (err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      success: false,
+      code: 'TOKEN_EXPIRED',
+      message: 'Authentication token has expired',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // Default error handler
+  const statusCode = err.statusCode || 500;
+  const errorResponse = {
     success: false,
-    code: 'SERVER_ERROR',
-    message: 'Internal server error',
-    systemError: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
+    code: err.code || 'SERVER_ERROR',
+    message: err.message || 'Internal server error',
+    timestamp: new Date().toISOString(),
+    requestId: req.id || null
+  };
+
+  // Only include stack trace in development
+  if (process.env.NODE_ENV === 'development') {
+    errorResponse.stack = err.stack;
+  }
+
+  // Include additional details for 500 errors
+  if (statusCode === 500) {
+    errorResponse.message = 'Internal server error'; // Override specific message for production
+    if (process.env.NODE_ENV !== 'production') {
+      errorResponse.systemError = err.message;
+    }
+    
+    // Log critical errors to external service
+    if (process.env.ERROR_REPORTING_SERVICE === 'true') {
+      logErrorToService(err, req);
+    }
+  }
+
+  res.status(statusCode).json(errorResponse);
 });
+
+// Helper function to log errors to external service
+function logErrorToService(err, req) {
+  const errorData = {
+    timestamp: new Date().toISOString(),
+    message: err.message,
+    stack: err.stack,
+    code: err.code,
+    request: {
+      method: req.method,
+      url: req.originalUrl,
+      params: req.params,
+      query: req.query,
+      headers: sanitizeHeaders(req.headers),
+      ip: req.ip
+    },
+    environment: process.env.NODE_ENV
+  };
+
+  // In production, you would send this to an error tracking service
+  if (process.env.NODE_ENV === 'production') {
+    // Example: Sentry.captureException(errorData);
+    console.error('Error report:', JSON.stringify(errorData, null, 2));
+  }
+}
+
+function sanitizeHeaders(headers) {
+  const sensitiveFields = ['authorization', 'cookie', 'token'];
+  const sanitized = {...headers};
+  
+  sensitiveFields.forEach(field => {
+    if (sanitized[field]) {
+      sanitized[field] = '***REDACTED***';
+    }
+  });
+  
+  return sanitized;
+}
 
 // ==================== ADMIN INITIALIZATION ====================
 async function createInitialAdmin() {
