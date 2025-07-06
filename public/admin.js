@@ -1082,9 +1082,9 @@ function renderActiveLoansGrid(loans) {
         }
     }
 
-    // ==================== CUSTOMER MANAGEMENT FUNCTIONS ====================
+// ==================== CUSTOMER MANAGEMENT FUNCTIONS ====================
 async function searchCustomer() {
-    const searchTerm = searchCustomerInput.value.trim();
+    const searchTerm = searchTerm = searchCustomerInput.value.trim();
     
     // Clear previous results and show loading state
     customerDetailsContainer.innerHTML = '<div class="loading-spinner"></div>';
@@ -1098,10 +1098,13 @@ async function searchCustomer() {
     }
     
     try {
-        // Show loading indicator
+        // Show loading indicator on search button if it exists
         const searchButton = document.querySelector('#search-customer-btn') || searchCustomerInput.nextElementSibling;
         const originalButtonText = searchButton?.innerHTML || '';
-        if (searchButton) searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
+        if (searchButton) {
+            searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
+            searchButton.disabled = true;
+        }
         
         const response = await fetch(`${API_BASE_URL}/api/admin/customers?search=${encodeURIComponent(searchTerm)}`, {
             headers: {
@@ -1109,10 +1112,6 @@ async function searchCustomer() {
                 'Content-Type': 'application/json'
             }
         });
-        
-        // Reset button state
-        if (searchButton) searchButton.innerHTML = originalButtonText;
-        searchCustomerInput.disabled = false;
         
         if (!response.ok) {
             const errorData = await response.json();
@@ -1152,6 +1151,13 @@ async function searchCustomer() {
         `;
         
         showNotification(error.message || 'Search failed', 'error');
+    } finally {
+        // Reset button state
+        const searchButton = document.querySelector('#search-customer-btn') || searchCustomerInput.nextElementSibling;
+        if (searchButton) {
+            searchButton.innerHTML = originalButtonText;
+            searchButton.disabled = false;
+        }
         searchCustomerInput.disabled = false;
     }
 }
@@ -1808,7 +1814,11 @@ const debugLogger = {
     }
 };
 
-// Helper functions for different log levels
+// Simplified interface functions
+function logDebug(message, data, level = 'info') {
+    debugLogger.log(message, data, level);
+}
+
 function logDebugInfo(message, data) {
     debugLogger.log(message, data, 'info');
 }
