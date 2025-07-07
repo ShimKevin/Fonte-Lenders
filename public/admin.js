@@ -149,58 +149,105 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    async function validateToken(token) {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/admin/validate-token`, {
+async function validateToken(token) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/validate-token`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.status === 401) {
+            // Token expired - attempt refresh if possible
+            const refreshResponse = await fetch(`${API_BASE_URL}/api/admin/refresh-token`, {
+                method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                credentials: 'include' // Include cookies if using httpOnly refresh tokens
             });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.message || 'Token validation failed');
+            
+            if (refreshResponse.ok) {
+                const { token: newToken, refreshToken } = await refreshResponse.json();
+                localStorage.setItem('adminToken', newToken);
+                // Store refresh token securely if not httpOnly
+                if (refreshToken) {
+                    localStorage.setItem('adminRefreshToken', refreshToken);
+                }
+                return validateToken(newToken); // Retry with new token
+            } else {
+                // Refresh failed - force logout
+                handleLogout();
+                throw new Error('Session expired. Please log in again.');
             }
-
-            // Token is valid
-            adminData = data.admin;
-            loginContainer.classList.add('hidden');
-            adminContent.classList.remove('hidden');
-            document.getElementById('admin-username').textContent = `Logged in as: ${adminData.username}`;
-            
-            // Initialize socket connection
-            initSocketConnection(token);
-            
-            // Load initial data
-            loadAdminData();
-            
-        } catch (error) {
-            console.error('Token validation error:', error);
-            localStorage.removeItem('adminToken');
         }
-    }
 
-    function handleLogout() {
-        localStorage.removeItem('adminToken');
-        if (socket) {
-            socket.disconnect();
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.message || 'Token validation failed');
         }
-        adminContent.classList.add('hidden');
-        loginContainer.classList.remove('hidden');
-        usernameInput.value = '';
-        passwordInput.value = '';
-        errorMessage.classList.add('hidden');
-        adminData = null;
-    }
 
-    function showError(message) {
-        errorMessage.textContent = message;
-        errorMessage.classList.remove('hidden');
+        // Token is valid - update UI and initialize
+        adminData = data.admin;
+        loginContainer.classList.add('hidden');
+        adminContent.classList.remove('hidden');
+        document.getElementById('admin-username').textContent = `Logged in as: ${adminData.username}`;
+        
+        // Initialize socket connection with fresh token
+        initSocketConnection(token);
+        
+        // Load admin data
+        loadAdminData();
+        
+        return true;
+        
+    } catch (error) {
+        console.error('Token validation error:', error);
+        handleLogout();
+        showError(error.message || 'Session expired. Please log in again.');
+        return false;
+    }
+}
+
+function handleLogout() {
+    // Clear all tokens
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminRefreshToken');
+    
+    // Disconnect socket if exists
+    if (socket) {
+        socket.disconnect();
+    }
+    
+    // Reset UI
+    adminContent.classList.add('hidden');
+    loginContainer.classList.remove('hidden');
+    usernameInput.value = '';
+    passwordInput.value = '';
+    errorMessage.classList.add('hidden');
+    adminData = null;
+    
+    // Clear any sensitive data
+    clearAdminData();
+}
+
+function showError(message, isPersistent = false) {
+    errorMessage.textContent = message;
+    errorMessage.classList.remove('hidden');
+    
+    // Only auto-hide if not a persistent error
+    if (!isPersistent) {
         setTimeout(() => {
             errorMessage.classList.add('hidden');
         }, 5000);
     }
+}
+
+function clearAdminData() {
+    // Clear any admin-related data from memory
+    // Implement this based on your application's needs
+}
 
     // ==================== SOCKET.IO FUNCTIONS ====================
     function initSocketConnection(token) {
@@ -1084,7 +1131,7 @@ function renderActiveLoansGrid(loans) {
 
 // ==================== CUSTOMER MANAGEMENT FUNCTIONS ====================
 async function searchCustomer() {
-    const searchTerm = searchTerm = searchCustomerInput.value.trim();
+    const searchTerm = searchCustomerInput.value.trim();
     
     // Clear previous results and show loading state
     customerDetailsContainer.innerHTML = '<div class="loading-spinner"></div>';
@@ -1098,7 +1145,7 @@ async function searchCustomer() {
     }
     
     try {
-        // Show loading indicator on search button if it exists
+        // Show loading indicator on search button
         const searchButton = document.querySelector('#search-customer-btn') || searchCustomerInput.nextElementSibling;
         const originalButtonText = searchButton?.innerHTML || '';
         if (searchButton) {
@@ -1138,7 +1185,7 @@ async function searchCustomer() {
     } catch (error) {
         console.error('Search error:', error);
         
-        // Create a more user-friendly error display
+        // Create a user-friendly error display with retry option
         customerDetailsContainer.innerHTML = `
             <div class="search-error">
                 <i class="fas fa-exclamation-triangle"></i>
@@ -1654,45 +1701,45 @@ function viewCustomerLoan(customerId) {
         `;
     }
 
-    // ==================== UTILITY FUNCTIONS ====================
-    function formatDate(dateString) {
-        if (!dateString) return 'N/A';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-GB', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        });
-    }
+// ==================== UTILITY FUNCTIONS ====================
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+}
 
-    function showNotification(message, type = 'info') {
-        const existingNotifications = document.querySelectorAll('.notification');
-        existingNotifications.forEach(notification => {
-            notification.remove();
-        });
+function showNotification(message, type = 'info') {
+    const existingNotifications = document.querySelectorAll('.notification');
+    existingNotifications.forEach(notification => {
+        notification.remove();
+    });
 
-        const notification = document.createElement('div');
-        notification.className = `notification ${type}`;
-        notification.innerHTML = `
-            <div class="notification-content">
-                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle'}"></i>
-                <span>${message}</span>
-            </div>
-        `;
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <div class="notification-content">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle'}"></i>
+            <span>${message}</span>
+        </div>
+    `;
 
-        document.body.appendChild(notification);
+    document.body.appendChild(notification);
 
-        setTimeout(() => {
-            notification.style.opacity = '0';
-            setTimeout(() => notification.remove(), 300);
-        }, 5000);
-    }
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => notification.remove(), 300);
+    }, 5000);
+}
 
-    function toggleDebugConsole() {
-        debugMode = !debugMode;
-        debugConsole.style.display = debugMode ? 'block' : 'none';
-        debugToggleButton.querySelector('.debug-btn-text').textContent = debugMode ? 'HIDE DEBUG' : 'SHOW DEBUG';
-    }
+function toggleDebugConsole() {
+    debugMode = !debugMode;
+    debugConsole.style.display = debugMode ? 'block' : 'none';
+    debugToggleButton.querySelector('.debug-btn-text').textContent = debugMode ? 'HIDE DEBUG' : 'SHOW DEBUG';
+}
 
 // ==================== DEBUG LOGGING FUNCTIONS ====================
 const debugLogger = {

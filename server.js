@@ -1,4 +1,3 @@
-// debug line
 require('dotenv').config();
 const { body, validationResult } = require('express-validator');
 const dateUtils = require('./shared/dateUtils.js');
