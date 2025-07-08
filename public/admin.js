@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // ==================== DEBUG LOGGING FUNCTIONS ====================
+        // ==================== DEBUG LOGGING FUNCTIONS ====================
     const debugLogger = {
         colors: {
             info: '#4CAF50',
@@ -15,12 +15,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 const timestamp = new Date().toISOString();
                 const color = this.colors[level] || this.colors.info;
                 
-                // Create log entry element
                 const entry = document.createElement('div');
                 entry.className = `debug-entry ${level}`;
                 entry.dataset.timestamp = timestamp;
                 
-                // Create header with timestamp and level
                 const header = document.createElement('div');
                 header.className = 'debug-header';
                 header.innerHTML = `
@@ -28,7 +26,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     <span class="debug-level" style="color: ${color}">${level.toUpperCase()}</span>
                 `;
                 
-                // Create message element
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'debug-message';
                 messageDiv.textContent = message;
@@ -36,7 +33,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 entry.appendChild(header);
                 entry.appendChild(messageDiv);
                 
-                // Add data if present
                 if (data !== undefined) {
                     const dataElement = document.createElement('pre');
                     dataElement.className = 'debug-data';
@@ -51,11 +47,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     entry.appendChild(dataElement);
                 }
                 
-                // Add to debug console
                 debugContent.appendChild(entry);
                 debugContent.scrollTop = debugContent.scrollHeight;
                 
-                // Mirror to browser console
                 this.consoleLog(level, message, data);
                 
             } catch (error) {
@@ -294,105 +288,105 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    async function validateToken(token) {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/admin/validate-token`, {
+async function validateToken(token) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/validate-token`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.status === 401) {
+            // Token expired - attempt refresh if possible
+            const refreshResponse = await fetch(`${API_BASE_URL}/api/admin/refresh-token`, {
+                method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                credentials: 'include' // Include cookies if using httpOnly refresh tokens
             });
-
-            if (response.status === 401) {
-                // Token expired - attempt refresh if possible
-                const refreshResponse = await fetch(`${API_BASE_URL}/api/admin/refresh-token`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    },
-                    credentials: 'include' // Include cookies if using httpOnly refresh tokens
-                });
-                
-                if (refreshResponse.ok) {
-                    const { token: newToken, refreshToken } = await refreshResponse.json();
-                    localStorage.setItem('adminToken', newToken);
-                    // Store refresh token securely if not httpOnly
-                    if (refreshToken) {
-                        localStorage.setItem('adminRefreshToken', refreshToken);
-                    }
-                    return validateToken(newToken); // Retry with new token
-                } else {
-                    // Refresh failed - force logout
-                    handleLogout();
-                    throw new Error('Session expired. Please log in again.');
+            
+            if (refreshResponse.ok) {
+                const { token: newToken, refreshToken } = await refreshResponse.json();
+                localStorage.setItem('adminToken', newToken);
+                // Store refresh token securely if not httpOnly
+                if (refreshToken) {
+                    localStorage.setItem('adminRefreshToken', refreshToken);
                 }
+                return validateToken(newToken); // Retry with new token
+            } else {
+                // Refresh failed - force logout
+                handleLogout();
+                throw new Error('Session expired. Please log in again.');
             }
-
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.message || 'Token validation failed');
-            }
-
-            // Token is valid - update UI and initialize
-            adminData = data.admin;
-            loginContainer.classList.add('hidden');
-            adminContent.classList.remove('hidden');
-            document.getElementById('admin-username').textContent = `Logged in as: ${adminData.username}`;
-            
-            // Initialize socket connection with fresh token
-            initSocketConnection(token);
-            
-            // Load admin data
-            loadAdminData();
-            
-            return true;
-            
-        } catch (error) {
-            console.error('Token validation error:', error);
-            handleLogout();
-            showError(error.message || 'Session expired. Please log in again.');
-            return false;
         }
-    }
 
-    function handleLogout() {
-        // Clear all tokens
-        localStorage.removeItem('adminToken');
-        localStorage.removeItem('adminRefreshToken');
+        const data = await response.json();
         
-        // Disconnect socket if exists
-        if (socket) {
-            socket.disconnect();
+        if (!response.ok) {
+            throw new Error(data.message || 'Token validation failed');
         }
-        
-        // Reset UI
-        adminContent.classList.add('hidden');
-        loginContainer.classList.remove('hidden');
-        usernameInput.value = '';
-        passwordInput.value = '';
-        errorMessage.classList.add('hidden');
-        adminData = null;
-        
-        // Clear any sensitive data
-        clearAdminData();
-    }
 
-    function showError(message, isPersistent = false) {
-        errorMessage.textContent = message;
-        errorMessage.classList.remove('hidden');
+        // Token is valid - update UI and initialize
+        adminData = data.admin;
+        loginContainer.classList.add('hidden');
+        adminContent.classList.remove('hidden');
+        document.getElementById('admin-username').textContent = `Logged in as: ${adminData.username}`;
         
-        // Only auto-hide if not a persistent error
-        if (!isPersistent) {
-            setTimeout(() => {
-                errorMessage.classList.add('hidden');
-            }, 5000);
-        }
+        // Initialize socket connection with fresh token
+        initSocketConnection(token);
+        
+        // Load admin data
+        loadAdminData();
+        
+        return true;
+        
+    } catch (error) {
+        console.error('Token validation error:', error);
+        handleLogout();
+        showError(error.message || 'Session expired. Please log in again.');
+        return false;
     }
+}
 
-    function clearAdminData() {
-        // Clear any admin-related data from memory
-        // Implement this based on your application's needs
+function handleLogout() {
+    // Clear all tokens
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminRefreshToken');
+    
+    // Disconnect socket if exists
+    if (socket) {
+        socket.disconnect();
     }
+    
+    // Reset UI
+    adminContent.classList.add('hidden');
+    loginContainer.classList.remove('hidden');
+    usernameInput.value = '';
+    passwordInput.value = '';
+    errorMessage.classList.add('hidden');
+    adminData = null;
+    
+    // Clear any sensitive data
+    clearAdminData();
+}
+
+function showError(message, isPersistent = false) {
+    errorMessage.textContent = message;
+    errorMessage.classList.remove('hidden');
+    
+    // Only auto-hide if not a persistent error
+    if (!isPersistent) {
+        setTimeout(() => {
+            errorMessage.classList.add('hidden');
+        }, 5000);
+    }
+}
+
+function clearAdminData() {
+    // Clear any admin-related data from memory
+    // Implement this based on your application's needs
+}
 
     // ==================== SOCKET.IO FUNCTIONS ====================
     function initSocketConnection(token) {
@@ -658,141 +652,125 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         loans.forEach(loan => {
-            try {
-                const loanCard = createLoanCard(loan);
-                loansGrid.appendChild(loanCard);
-            } catch (error) {
-                console.error('Error rendering loan card:', error);
-                const errorCard = document.createElement('div');
-                errorCard.className = 'loan-card error';
-                errorCard.innerHTML = `
-                    <div class="loan-header">
-                        <h4>Error Displaying Loan</h4>
-                        <span class="status-error">ERROR</span>
-                    </div>
-                    <div class="loan-details">
-                        <p>Could not display loan details</p>
-                    </div>
-                `;
-                loansGrid.appendChild(errorCard);
-            }
+            const loanCard = createLoanCard(loan);
+            loansGrid.appendChild(loanCard);
         });
     }
 
     function createLoanCard(loan) {
-        const now = new Date();
-        const dueDate = new Date(loan.dueDate);
-        const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-        const isOverdue = daysRemaining < 0;
-        const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
-        const penaltyDays = Math.min(overdueDays, 6);
-        
-        const amountPaid = loan.amountPaid || 0;
-        const totalAmount = loan.totalAmount || (loan.amount + (loan.amount * (loan.interestRate || 15) / 100) + (loan.overdueFees || 0));
-        const amountDue = totalAmount - amountPaid;
-        const progress = Math.min(100, (amountPaid / totalAmount) * 100);
-        
-        const card = document.createElement('div');
-        card.className = `loan-card ${isOverdue ? 'overdue' : ''}`;
-        card.style.minHeight = '300px'; // Fixed minimum height
-        card.style.display = 'flex';
-        card.style.flexDirection = 'column';
-        card.style.justifyContent = 'space-between';
-        card.style.border = '1px solid #e0e0e0';
-        card.style.borderRadius = '8px';
-        card.style.padding = '15px';
-        card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-        card.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
-        
-        card.innerHTML = `
-            <div>
-                <div class="loan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <h4 style="margin: 0; font-size: 16px; font-weight: 600;">${loan.fullName}</h4>
-                    <span class="status-${loan.status}" style="padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase;">
-                        ${loan.status.toUpperCase()}
+    const now = new Date();
+    const dueDate = new Date(loan.dueDate);
+    const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+    const isOverdue = daysRemaining < 0;
+    const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
+    const penaltyDays = Math.min(overdueDays, 6);
+    
+    const amountPaid = loan.amountPaid || 0;
+    const totalAmount = loan.totalAmount || (loan.amount + (loan.amount * (loan.interestRate || 15) / 100) + (loan.overdueFees || 0));
+    const amountDue = totalAmount - amountPaid;
+    const progress = Math.min(100, (amountPaid / totalAmount) * 100);
+    
+    const card = document.createElement('div');
+    card.className = `loan-card ${isOverdue ? 'overdue' : ''}`;
+    card.style.minHeight = '300px'; // Fixed minimum height
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    card.style.justifyContent = 'space-between';
+    card.style.border = '1px solid #e0e0e0';
+    card.style.borderRadius = '8px';
+    card.style.padding = '15px';
+    card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+    card.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
+    
+    card.innerHTML = `
+        <div>
+            <div class="loan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="margin: 0; font-size: 16px; font-weight: 600;">${loan.fullName}</h4>
+                <span class="status-${loan.status}" style="padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase;">
+                    ${loan.status.toUpperCase()}
+                </span>
+            </div>
+            <div class="loan-details" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Principal</span>
+                    <span style="font-weight: 500;">KES ${loan.amount.toLocaleString()}</span>
+                </div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Total Due</span>
+                    <span style="font-weight: 500;">KES ${totalAmount.toLocaleString()}</span>
+                </div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Amount Paid</span>
+                    <span style="font-weight: 500;">KES ${amountPaid.toLocaleString()}</span>
+                </div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Amount Due</span>
+                    <span style="font-weight: 500;">KES ${amountDue.toLocaleString()}</span>
+                </div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">${isOverdue ? 'Days Overdue' : 'Days Remaining'}</span>
+                    <span class="${isOverdue ? 'text-warning' : ''}" style="font-weight: 500;">
+                        ${isOverdue ? overdueDays : daysRemaining}
+                        ${isOverdue && overdueDays > 6 ? ' (penalty capped)' : ''}
                     </span>
                 </div>
-                <div class="loan-details" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Principal</span>
-                        <span style="font-weight: 500;">KES ${loan.amount.toLocaleString()}</span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Total Due</span>
-                        <span style="font-weight: 500;">KES ${totalAmount.toLocaleString()}</span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Amount Paid</span>
-                        <span style="font-weight: 500;">KES ${amountPaid.toLocaleString()}</span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Amount Due</span>
-                        <span style="font-weight: 500;">KES ${amountDue.toLocaleString()}</span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">${isOverdue ? 'Days Overdue' : 'Days Remaining'}</span>
-                        <span class="${isOverdue ? 'text-warning' : ''}" style="font-weight: 500;">
-                            ${isOverdue ? overdueDays : daysRemaining}
-                            ${isOverdue && overdueDays > 6 ? ' (penalty capped)' : ''}
-                        </span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Due Date</span>
-                        <span style="font-weight: 500;">${formatDate(loan.dueDate)}</span>
-                    </div>
-                </div>
-                <div class="progress-container" style="margin-top: 15px; height: 10px; background: #f0f0f0; border-radius: 5px;">
-                    <div class="progress-bar" style="height: 100%; width: ${progress}%; background: ${progress === 100 ? '#4CAF50' : '#FFD700'}; border-radius: 5px; transition: width 0.5s ease;"></div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Due Date</span>
+                    <span style="font-weight: 500;">${formatDate(loan.dueDate)}</span>
                 </div>
             </div>
-            <div class="loan-actions" style="margin-top: auto; display: flex; gap: 10px; padding-top: 15px;">
-                <button class="luxury-btn" data-action="view" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; flex: 1;">View Details</button>
-                ${loan.status === 'pending' ? `
-                    <button class="luxury-btn" data-action="approve" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #4CAF50; color: white; flex: 1;">Approve</button>
-                    <button class="luxury-btn" data-action="reject" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #f44336; color: white; flex: 1;">Reject</button>
-                ` : ''}
-                ${isOverdue ? `
-                    <button class="luxury-btn" data-action="force-complete" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #2196F3; color: white; flex: 1;">Mark Complete</button>
-                ` : ''}
+            <div class="progress-container" style="margin-top: 15px; height: 10px; background: #f0f0f0; border-radius: 5px;">
+                <div class="progress-bar" style="height: 100%; width: ${progress}%; background: ${progress === 100 ? '#4CAF50' : '#FFD700'}; border-radius: 5px; transition: width 0.5s ease;"></div>
             </div>
-        `;
-        
-        // Add hover effects
-        card.addEventListener('mouseenter', () => {
-            card.style.transform = 'translateY(-2px)';
-            card.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+        </div>
+        <div class="loan-actions" style="margin-top: auto; display: flex; gap: 10px; padding-top: 15px;">
+            <button class="luxury-btn" data-action="view" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; flex: 1;">View Details</button>
+            ${loan.status === 'pending' ? `
+                <button class="luxury-btn" data-action="approve" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #4CAF50; color: white; flex: 1;">Approve</button>
+                <button class="luxury-btn" data-action="reject" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #f44336; color: white; flex: 1;">Reject</button>
+            ` : ''}
+            ${isOverdue ? `
+                <button class="luxury-btn" data-action="force-complete" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #2196F3; color: white; flex: 1;">Mark Complete</button>
+            ` : ''}
+        </div>
+    `;
+    
+    // Add hover effects
+    card.addEventListener('mouseenter', () => {
+        card.style.transform = 'translateY(-2px)';
+        card.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+    });
+    
+    card.addEventListener('mouseleave', () => {
+        card.style.transform = '';
+        card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+    });
+    
+    // Add event listeners to buttons
+    card.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const action = this.getAttribute('data-action');
+            const loanId = this.getAttribute('data-loan-id');
+            
+            switch (action) {
+                case 'view':
+                    showLoanDetails(loanId);
+                    break;
+                case 'approve':
+                    showApprovalTermsModal(loanId);
+                    break;
+                case 'reject':
+                    showRejectionModal(loanId);
+                    break;
+                case 'force-complete':
+                    forceCompleteLoan(loanId);
+                    break;
+            }
         });
-        
-        card.addEventListener('mouseleave', () => {
-            card.style.transform = '';
-            card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-        });
-        
-        // Add event listeners to buttons
-        card.querySelectorAll('button').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const action = this.getAttribute('data-action');
-                const loanId = this.getAttribute('data-loan-id');
-                
-                switch (action) {
-                    case 'view':
-                        showLoanDetails(loanId);
-                        break;
-                    case 'approve':
-                        showApprovalTermsModal(loanId);
-                        break;
-                    case 'reject':
-                        showRejectionModal(loanId);
-                        break;
-                    case 'force-complete':
-                        forceCompleteLoan(loanId);
-                        break;
-                }
-            });
-        });
-        
-        return card;
-    }
+    });
+    
+    return card;
+}
 
     function renderLoansTable(loans) {
         loansTableBody.innerHTML = '';
@@ -1138,6 +1116,36 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+function renderActiveLoansGrid(loans) {
+  loansGrid.innerHTML = '';
+  
+  if (!loans || loans.length === 0) {
+    loansGrid.innerHTML = '<p>No active loans found</p>';
+    return;
+  }
+  
+  loans.forEach(loan => {
+    try {
+      const loanCard = createLoanCard(loan);
+      loansGrid.appendChild(loanCard);
+    } catch (error) {
+      console.error('Error rendering loan card:', error);
+      const errorCard = document.createElement('div');
+      errorCard.className = 'loan-card error';
+      errorCard.innerHTML = `
+        <div class="loan-header">
+          <h4>Error Displaying Loan</h4>
+          <span class="status-error">ERROR</span>
+        </div>
+        <div class="loan-details">
+          <p>Could not display loan details</p>
+        </div>
+      `;
+      loansGrid.appendChild(errorCard);
+    }
+  });
+}
+
     // ==================== PAYMENT MANAGEMENT FUNCTIONS ====================
     async function refreshPendingPayments() {
         try {
@@ -1260,425 +1268,425 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // ==================== CUSTOMER MANAGEMENT FUNCTIONS ====================
-    async function searchCustomer() {
-        const searchTerm = searchCustomerInput.value.trim();
+// ==================== CUSTOMER MANAGEMENT FUNCTIONS ====================
+async function searchCustomer() {
+    const searchTerm = searchCustomerInput.value.trim();
+    
+    // Clear previous results and show loading state
+    customerDetailsContainer.innerHTML = '<div class="loading-spinner"></div>';
+    searchCustomerInput.disabled = true;
+    
+    if (!searchTerm) {
+        showNotification('Please enter a search term', 'error');
+        customerDetailsContainer.innerHTML = '';
+        searchCustomerInput.disabled = false;
+        return;
+    }
+    
+    try {
+        // Show loading indicator on search button
+        const searchButton = document.querySelector('#search-customer-btn') || searchCustomerInput.nextElementSibling;
+        const originalButtonText = searchButton?.innerHTML || '';
+        if (searchButton) {
+            searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
+            searchButton.disabled = true;
+        }
         
-        // Clear previous results and show loading state
-        customerDetailsContainer.innerHTML = '<div class="loading-spinner"></div>';
-        searchCustomerInput.disabled = true;
+        const response = await fetch(`${API_BASE_URL}/api/admin/customers?search=${encodeURIComponent(searchTerm)}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+                'Content-Type': 'application/json'
+            }
+        });
         
-        if (!searchTerm) {
-            showNotification('Please enter a search term', 'error');
-            customerDetailsContainer.innerHTML = '';
-            searchCustomerInput.disabled = false;
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || `Search failed with status ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.customers || data.customers.length === 0) {
+            customerDetailsContainer.innerHTML = `
+                <div class="no-results">
+                    <i class="fas fa-search"></i>
+                    <h4>No customers found</h4>
+                    <p>No results matching "${searchTerm}"</p>
+                </div>
+            `;
+            showNotification('No matching customers found', 'info');
             return;
         }
         
-        try {
-            // Show loading indicator on search button
-            const searchButton = document.querySelector('#search-customer-btn') || searchCustomerInput.nextElementSibling;
-            const originalButtonText = searchButton?.innerHTML || '';
-            if (searchButton) {
-                searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
-                searchButton.disabled = true;
-            }
-            
-            const response = await fetch(`${API_BASE_URL}/api/admin/customers?search=${encodeURIComponent(searchTerm)}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || `Search failed with status ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (!data.customers || data.customers.length === 0) {
-                customerDetailsContainer.innerHTML = `
-                    <div class="no-results">
-                        <i class="fas fa-search"></i>
-                        <h4>No customers found</h4>
-                        <p>No results matching "${searchTerm}"</p>
-                    </div>
-                `;
-                showNotification('No matching customers found', 'info');
-                return;
-            }
-            
-            renderCustomerSearchResults(data.customers);
-            showNotification(`Found ${data.customers.length} customer(s)`, 'success');
-            
-        } catch (error) {
-            console.error('Search error:', error);
-            
-            // Create a user-friendly error display with retry option
-            customerDetailsContainer.innerHTML = `
-                <div class="search-error">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <h4>Search Failed</h4>
-                    <p>${error.message || 'An error occurred while searching'}</p>
-                    <button class="retry-btn" onclick="searchCustomer()">
-                        <i class="fas fa-sync-alt"></i> Try Again
-                    </button>
-                </div>
-            `;
-            
-            showNotification(error.message || 'Search failed', 'error');
-        } finally {
-            // Reset button state
-            const searchButton = document.querySelector('#search-customer-btn') || searchCustomerInput.nextElementSibling;
-            if (searchButton) {
-                searchButton.innerHTML = originalButtonText;
-                searchButton.disabled = false;
-            }
-            searchCustomerInput.disabled = false;
-        }
-    }
-
-    function renderCustomerSearchResults(customers) {
-        customerDetailsContainer.innerHTML = '';
+        renderCustomerSearchResults(data.customers);
+        showNotification(`Found ${data.customers.length} customer(s)`, 'success');
         
-        customers.forEach(customer => {
-            const availableCredit = customer.maxLoanLimit - customer.currentLoanBalance;
-            const creditUtilization = customer.maxLoanLimit > 0 
-                ? (customer.currentLoanBalance / customer.maxLoanLimit) * 100 
-                : 0;
-            
-            const customerCard = document.createElement('div');
-            customerCard.className = 'customer-card';
-            customerCard.innerHTML = `
-                <div class="customer-header">
-                    <h4>${customer.fullName}</h4>
-                    <span class="status-badge status-${customer.verificationStatus || 'pending'}">
-                        ${(customer.verificationStatus || 'pending').toUpperCase()}
-                    </span>
-                </div>
-                
-                <div class="customer-details-grid">
-                    <div class="detail-item">
-                        <span class="detail-label">Customer ID:</span>
-                        <span class="detail-value">${customer.customerId}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Phone:</span>
-                        <span class="detail-value">${customer.phoneNumber}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Email:</span>
-                        <span class="detail-value">${customer.email || 'N/A'}</span>
-                    </div>
-                    
-                    <div class="detail-item">
-                        <span class="detail-label">Credit Limit:</span>
-                        <span class="detail-value">KES ${customer.maxLoanLimit.toLocaleString()}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Current Balance:</span>
-                        <span class="detail-value">KES ${customer.currentLoanBalance.toLocaleString()}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Available Credit:</span>
-                        <span class="detail-value ${availableCredit <= 0 ? 'text-danger' : ''}">
-                            KES ${availableCredit.toLocaleString()}
-                        </span>
-                    </div>
-                    
-                    <div class="detail-item full-width">
-                        <div class="credit-utilization">
-                            <span class="detail-label">Credit Utilization:</span>
-                            <div class="utilization-bar-container">
-                                <div class="utilization-bar" style="width: ${Math.min(creditUtilization, 100)}%"></div>
-                                <span class="utilization-text">${Math.round(creditUtilization)}%</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="limit-controls">
-                    <div class="limit-input-group">
-                        <input type="number" 
-                               id="newLimit-${customer._id}" 
-                               placeholder="New loan limit" 
-                               min="0" 
-                               value="${customer.maxLoanLimit}"
-                               class="limit-input">
-                        <button class="luxury-btn limit-update-btn" 
-                                onclick="updateCustomerLimit('${customer._id}')">
-                            <i class="fas fa-save"></i> Update Limit
-                        </button>
-                    </div>
-                    <div class="limit-message" id="limitMessage-${customer._id}"></div>
-                </div>
-                
-                <div class="customer-actions">
-                    <button class="action-btn view-profile-btn" 
-                            onclick="viewCustomerProfile('${customer._id}')">
-                        <i class="fas fa-user-circle"></i> View Profile
-                    </button>
-                    ${customer.activeLoan ? `
-                    <button class="action-btn view-loan-btn" 
-                            onclick="viewCustomerLoan('${customer._id}')">
-                        <i class="fas fa-file-invoice-dollar"></i> View Active Loan
-                    </button>
-                    ` : ''}
-                </div>
-            `;
-            
-            customerDetailsContainer.appendChild(customerCard);
-        });
-    }
-
-    async function fetchCustomerDetails(customerId) {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/admin/customers/${customerId}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
-                }
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to fetch customer details');
-            }
-            
-            return data.customer;
-            
-        } catch (error) {
-            console.error('Error fetching customer details:', error);
-            showNotification(error.message || 'Failed to fetch customer details', 'error');
-            return null;
-        }
-    }
-
-    function renderCustomerProfile(customer) {
-        if (!customer) return;
+    } catch (error) {
+        console.error('Search error:', error);
         
+        // Create a user-friendly error display with retry option
+        customerDetailsContainer.innerHTML = `
+            <div class="search-error">
+                <i class="fas fa-exclamation-triangle"></i>
+                <h4>Search Failed</h4>
+                <p>${error.message || 'An error occurred while searching'}</p>
+                <button class="retry-btn" onclick="searchCustomer()">
+                    <i class="fas fa-sync-alt"></i> Try Again
+                </button>
+            </div>
+        `;
+        
+        showNotification(error.message || 'Search failed', 'error');
+    } finally {
+        // Reset button state
+        const searchButton = document.querySelector('#search-customer-btn') || searchCustomerInput.nextElementSibling;
+        if (searchButton) {
+            searchButton.innerHTML = originalButtonText;
+            searchButton.disabled = false;
+        }
+        searchCustomerInput.disabled = false;
+    }
+}
+
+function renderCustomerSearchResults(customers) {
+    customerDetailsContainer.innerHTML = '';
+    
+    customers.forEach(customer => {
         const availableCredit = customer.maxLoanLimit - customer.currentLoanBalance;
         const creditUtilization = customer.maxLoanLimit > 0 
             ? (customer.currentLoanBalance / customer.maxLoanLimit) * 100 
             : 0;
         
-        customerProfileSection.innerHTML = `
-            <div class="profile-header">
-                <button class="back-btn" onclick="backToCustomerSearch()">
-                    <i class="fas fa-arrow-left"></i> Back to Search
-                </button>
-                <h2>${customer.fullName}'s Profile</h2>
+        const customerCard = document.createElement('div');
+        customerCard.className = 'customer-card';
+        customerCard.innerHTML = `
+            <div class="customer-header">
+                <h4>${customer.fullName}</h4>
+                <span class="status-badge status-${customer.verificationStatus || 'pending'}">
+                    ${(customer.verificationStatus || 'pending').toUpperCase()}
+                </span>
             </div>
             
-            <div class="customer-profile-grid">
-                <div class="profile-section">
-                    <h3><i class="fas fa-user"></i> Personal Information</h3>
-                    <div class="profile-field">
-                        <span class="field-label">Full Name:</span>
-                        <span class="field-value">${customer.fullName}</span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Customer ID:</span>
-                        <span class="field-value">${customer.customerId}</span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Phone Number:</span>
-                        <span class="field-value">${customer.phoneNumber}</span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Email:</span>
-                        <span class="field-value">${customer.email || 'N/A'}</span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Verification Status:</span>
-                        <span class="status-badge status-${customer.verificationStatus || 'pending'}">
-                            ${(customer.verificationStatus || 'pending').toUpperCase()}
-                        </span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Member Since:</span>
-                        <span class="field-value">${formatDate(customer.createdAt)}</span>
-                    </div>
+            <div class="customer-details-grid">
+                <div class="detail-item">
+                    <span class="detail-label">Customer ID:</span>
+                    <span class="detail-value">${customer.customerId}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Phone:</span>
+                    <span class="detail-value">${customer.phoneNumber}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Email:</span>
+                    <span class="detail-value">${customer.email || 'N/A'}</span>
                 </div>
                 
-                <div class="profile-section">
-                    <h3><i class="fas fa-credit-card"></i> Loan Information</h3>
-                    <div class="profile-field">
-                        <span class="field-label">Maximum Loan Limit:</span>
-                        <span class="field-value">KES ${customer.maxLoanLimit.toLocaleString()}</span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Current Loan Balance:</span>
-                        <span class="field-value">KES ${customer.currentLoanBalance.toLocaleString()}</span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Available Credit:</span>
-                        <span class="field-value ${availableCredit <= 0 ? 'text-danger' : ''}">
-                            KES ${availableCredit.toLocaleString()}
-                        </span>
-                    </div>
-                    
+                <div class="detail-item">
+                    <span class="detail-label">Credit Limit:</span>
+                    <span class="detail-value">KES ${customer.maxLoanLimit.toLocaleString()}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Current Balance:</span>
+                    <span class="detail-value">KES ${customer.currentLoanBalance.toLocaleString()}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Available Credit:</span>
+                    <span class="detail-value ${availableCredit <= 0 ? 'text-danger' : ''}">
+                        KES ${availableCredit.toLocaleString()}
+                    </span>
+                </div>
+                
+                <div class="detail-item full-width">
                     <div class="credit-utilization">
-                        <span class="field-label">Credit Utilization:</span>
+                        <span class="detail-label">Credit Utilization:</span>
                         <div class="utilization-bar-container">
                             <div class="utilization-bar" style="width: ${Math.min(creditUtilization, 100)}%"></div>
                             <span class="utilization-text">${Math.round(creditUtilization)}%</span>
                         </div>
                     </div>
-                    
-                    <div class="limit-controls">
-                        <h4>Update Loan Limit</h4>
-                        <div class="limit-input-group">
-                            <input type="number" 
-                                   id="newCustomerLimit" 
-                                   placeholder="New loan limit" 
-                                   min="0" 
-                                   value="${customer.maxLoanLimit}"
-                                   class="limit-input">
-                            <button class="luxury-btn limit-update-btn" 
-                                    onclick="updateCustomerLimit('${customer._id}', true)">
-                                <i class="fas fa-save"></i> Update Limit
-                            </button>
-                        </div>
-                        <div class="limit-message" id="customerLimitMessage"></div>
+                </div>
+            </div>
+            
+            <div class="limit-controls">
+                <div class="limit-input-group">
+                    <input type="number" 
+                           id="newLimit-${customer._id}" 
+                           placeholder="New loan limit" 
+                           min="0" 
+                           value="${customer.maxLoanLimit}"
+                           class="limit-input">
+                    <button class="luxury-btn limit-update-btn" 
+                            onclick="updateCustomerLimit('${customer._id}')">
+                        <i class="fas fa-save"></i> Update Limit
+                    </button>
+                </div>
+                <div class="limit-message" id="limitMessage-${customer._id}"></div>
+            </div>
+            
+            <div class="customer-actions">
+                <button class="action-btn view-profile-btn" 
+                        onclick="viewCustomerProfile('${customer._id}')">
+                    <i class="fas fa-user-circle"></i> View Profile
+                </button>
+                ${customer.activeLoan ? `
+                <button class="action-btn view-loan-btn" 
+                        onclick="viewCustomerLoan('${customer._id}')">
+                    <i class="fas fa-file-invoice-dollar"></i> View Active Loan
+                </button>
+                ` : ''}
+            </div>
+        `;
+        
+        customerDetailsContainer.appendChild(customerCard);
+    });
+}
+
+async function fetchCustomerDetails(customerId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/customers/${customerId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to fetch customer details');
+        }
+        
+        return data.customer;
+        
+    } catch (error) {
+        console.error('Error fetching customer details:', error);
+        showNotification(error.message || 'Failed to fetch customer details', 'error');
+        return null;
+    }
+}
+
+function renderCustomerProfile(customer) {
+    if (!customer) return;
+    
+    const availableCredit = customer.maxLoanLimit - customer.currentLoanBalance;
+    const creditUtilization = customer.maxLoanLimit > 0 
+        ? (customer.currentLoanBalance / customer.maxLoanLimit) * 100 
+        : 0;
+    
+    customerProfileSection.innerHTML = `
+        <div class="profile-header">
+            <button class="back-btn" onclick="backToCustomerSearch()">
+                <i class="fas fa-arrow-left"></i> Back to Search
+            </button>
+            <h2>${customer.fullName}'s Profile</h2>
+        </div>
+        
+        <div class="customer-profile-grid">
+            <div class="profile-section">
+                <h3><i class="fas fa-user"></i> Personal Information</h3>
+                <div class="profile-field">
+                    <span class="field-label">Full Name:</span>
+                    <span class="field-value">${customer.fullName}</span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Customer ID:</span>
+                    <span class="field-value">${customer.customerId}</span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Phone Number:</span>
+                    <span class="field-value">${customer.phoneNumber}</span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Email:</span>
+                    <span class="field-value">${customer.email || 'N/A'}</span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Verification Status:</span>
+                    <span class="status-badge status-${customer.verificationStatus || 'pending'}">
+                        ${(customer.verificationStatus || 'pending').toUpperCase()}
+                    </span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Member Since:</span>
+                    <span class="field-value">${formatDate(customer.createdAt)}</span>
+                </div>
+            </div>
+            
+            <div class="profile-section">
+                <h3><i class="fas fa-credit-card"></i> Loan Information</h3>
+                <div class="profile-field">
+                    <span class="field-label">Maximum Loan Limit:</span>
+                    <span class="field-value">KES ${customer.maxLoanLimit.toLocaleString()}</span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Current Loan Balance:</span>
+                    <span class="field-value">KES ${customer.currentLoanBalance.toLocaleString()}</span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Available Credit:</span>
+                    <span class="field-value ${availableCredit <= 0 ? 'text-danger' : ''}">
+                        KES ${availableCredit.toLocaleString()}
+                    </span>
+                </div>
+                
+                <div class="credit-utilization">
+                    <span class="field-label">Credit Utilization:</span>
+                    <div class="utilization-bar-container">
+                        <div class="utilization-bar" style="width: ${Math.min(creditUtilization, 100)}%"></div>
+                        <span class="utilization-text">${Math.round(creditUtilization)}%</span>
                     </div>
                 </div>
                 
-                ${customer.activeLoan ? `
-                <div class="profile-section">
-                    <h3><i class="fas fa-file-invoice"></i> Active Loan</h3>
-                    <div class="profile-field">
-                        <span class="field-label">Loan Amount:</span>
-                        <span class="field-value">KES ${customer.activeLoan.amount.toLocaleString()}</span>
+                <div class="limit-controls">
+                    <h4>Update Loan Limit</h4>
+                    <div class="limit-input-group">
+                        <input type="number" 
+                               id="newCustomerLimit" 
+                               placeholder="New loan limit" 
+                               min="0" 
+                               value="${customer.maxLoanLimit}"
+                               class="limit-input">
+                        <button class="luxury-btn limit-update-btn" 
+                                onclick="updateCustomerLimit('${customer._id}', true)">
+                            <i class="fas fa-save"></i> Update Limit
+                        </button>
                     </div>
-                    <div class="profile-field">
-                        <span class="field-label">Amount Paid:</span>
-                        <span class="field-value">KES ${customer.activeLoan.amountPaid.toLocaleString()}</span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Status:</span>
-                        <span class="status-badge status-${customer.activeLoan.status}">
-                            ${customer.activeLoan.status.toUpperCase()}
-                        </span>
-                    </div>
-                    <div class="profile-field">
-                        <span class="field-label">Due Date:</span>
-                        <span class="field-value">${formatDate(customer.activeLoan.dueDate)}</span>
-                    </div>
-                    <button class="luxury-btn view-loan-btn" 
-                            onclick="showLoanDetails('${customer.activeLoan._id}')">
-                        <i class="fas fa-file-invoice-dollar"></i> View Loan Details
-                    </button>
+                    <div class="limit-message" id="customerLimitMessage"></div>
                 </div>
-                ` : ''}
             </div>
             
-            <div class="profile-actions">
-                <button class="danger-btn" onclick="deleteCustomer('${customer._id}')">
-                    <i class="fas fa-trash-alt"></i> Delete Customer
+            ${customer.activeLoan ? `
+            <div class="profile-section">
+                <h3><i class="fas fa-file-invoice"></i> Active Loan</h3>
+                <div class="profile-field">
+                    <span class="field-label">Loan Amount:</span>
+                    <span class="field-value">KES ${customer.activeLoan.amount.toLocaleString()}</span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Amount Paid:</span>
+                    <span class="field-value">KES ${customer.activeLoan.amountPaid.toLocaleString()}</span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Status:</span>
+                    <span class="status-badge status-${customer.activeLoan.status}">
+                        ${customer.activeLoan.status.toUpperCase()}
+                    </span>
+                </div>
+                <div class="profile-field">
+                    <span class="field-label">Due Date:</span>
+                    <span class="field-value">${formatDate(customer.activeLoan.dueDate)}</span>
+                </div>
+                <button class="luxury-btn view-loan-btn" 
+                        onclick="showLoanDetails('${customer.activeLoan._id}')">
+                    <i class="fas fa-file-invoice-dollar"></i> View Loan Details
                 </button>
             </div>
-        `;
-    }
-
-    async function updateCustomerLimit(customerId, isProfileView = false) {
-        const limitInput = isProfileView 
-            ? document.getElementById('newCustomerLimit')
-            : document.getElementById(`newLimit-${customerId}`);
-            
-        const messageElement = isProfileView
-            ? document.getElementById('customerLimitMessage')
-            : document.getElementById(`limitMessage-${customerId}`);
-            
-        const newLimit = parseFloat(limitInput.value);
+            ` : ''}
+        </div>
         
-        if (isNaN(newLimit) || newLimit < 0) {
-            messageElement.textContent = 'Please enter a valid limit amount';
-            messageElement.className = 'limit-message error';
-            return;
-        }
-        
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/admin/customers/${customerId}/limit`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ newLimit })
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to update limit');
-            }
-            
-            messageElement.textContent = 'Loan limit updated successfully!';
-            messageElement.className = 'limit-message success';
-            
-            // Refresh data
-            if (isProfileView && currentCustomer) {
-                const updatedCustomer = await fetchCustomerDetails(currentCustomer._id);
-                renderCustomerProfile(updatedCustomer);
-            } else {
-                searchCustomer();
-            }
-            
-            showNotification('Loan limit updated successfully', 'success');
-            
-        } catch (error) {
-            console.error('Error updating limit:', error);
-            messageElement.textContent = error.message || 'Failed to update limit';
-            messageElement.className = 'limit-message error';
-        }
-    }
+        <div class="profile-actions">
+            <button class="danger-btn" onclick="deleteCustomer('${customer._id}')">
+                <i class="fas fa-trash-alt"></i> Delete Customer
+            </button>
+        </div>
+    `;
+}
 
-    async function deleteCustomer(customerId) {
-        if (!confirm('Are you sure you want to delete this customer? This action cannot be undone.')) {
-            return;
+async function updateCustomerLimit(customerId, isProfileView = false) {
+    const limitInput = isProfileView 
+        ? document.getElementById('newCustomerLimit')
+        : document.getElementById(`newLimit-${customerId}`);
+        
+    const messageElement = isProfileView
+        ? document.getElementById('customerLimitMessage')
+        : document.getElementById(`limitMessage-${customerId}`);
+        
+    const newLimit = parseFloat(limitInput.value);
+    
+    if (isNaN(newLimit) || newLimit < 0) {
+        messageElement.textContent = 'Please enter a valid limit amount';
+        messageElement.className = 'limit-message error';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/customers/${customerId}/limit`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ newLimit })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to update limit');
         }
         
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/admin/customers/${customerId}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
-                }
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to delete customer');
-            }
-            
-            showNotification('Customer deleted successfully', 'success');
-            backToCustomerSearch();
-            
-        } catch (error) {
-            console.error('Error deleting customer:', error);
-            showNotification(error.message || 'Failed to delete customer', 'error');
+        messageElement.textContent = 'Loan limit updated successfully!';
+        messageElement.className = 'limit-message success';
+        
+        // Refresh data
+        if (isProfileView && currentCustomer) {
+            const updatedCustomer = await fetchCustomerDetails(currentCustomer._id);
+            renderCustomerProfile(updatedCustomer);
+        } else {
+            searchCustomer();
         }
+        
+        showNotification('Loan limit updated successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error updating limit:', error);
+        messageElement.textContent = error.message || 'Failed to update limit';
+        messageElement.className = 'limit-message error';
     }
+}
 
-    function viewCustomerProfile(customerId) {
-        fetchCustomerDetails(customerId).then(customer => {
-            if (customer) {
-                showCustomerProfile(customer);
+async function deleteCustomer(customerId) {
+    if (!confirm('Are you sure you want to delete this customer? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/customers/${customerId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
             }
         });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to delete customer');
+        }
+        
+        showNotification('Customer deleted successfully', 'success');
+        backToCustomerSearch();
+        
+    } catch (error) {
+        console.error('Error deleting customer:', error);
+        showNotification(error.message || 'Failed to delete customer', 'error');
     }
+}
 
-    function viewCustomerLoan(customerId) {
-        fetchCustomerDetails(customerId).then(customer => {
-            if (customer && customer.activeLoan) {
-                showLoanDetails(customer.activeLoan._id);
-            }
-        });
-    }
+function viewCustomerProfile(customerId) {
+    fetchCustomerDetails(customerId).then(customer => {
+        if (customer) {
+            showCustomerProfile(customer);
+        }
+    });
+}
+
+function viewCustomerLoan(customerId) {
+    fetchCustomerDetails(customerId).then(customer => {
+        if (customer && customer.activeLoan) {
+            showLoanDetails(customer.activeLoan._id);
+        }
+    });
+}
 
     // ==================== BULK OPERATIONS ====================
     async function processBulkLimitUpdate() {
@@ -1798,7 +1806,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <h4 style="margin-top: 0; color: #333;">Total Loans</h4>
                     <p style="font-size: 24px; font-weight: bold; color: #2c3e50;">${reportData.totalLoans}</p>
                 </div>
-                <div style="background: #f5f5f5; padding: 15px; border-radius: 5px;">
+                                <div style="background: #f5f5f5; padding: 15px; border-radius: 5px;">
                     <h4 style="margin-top: 0; color: #333;">Repayments Received</h4>
                     <p style="font-size: 24px; font-weight: bold; color: #2c3e50;">KES ${reportData.repaymentsReceived.toLocaleString()}</p>
                 </div>
@@ -1832,45 +1840,45 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
     }
 
-    // ==================== UTILITY FUNCTIONS ====================
-    function formatDate(dateString) {
-        if (!dateString) return 'N/A';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-GB', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        });
-    }
+// ==================== UTILITY FUNCTIONS ====================
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+}
 
-    function showNotification(message, type = 'info') {
-        const existingNotifications = document.querySelectorAll('.notification');
-        existingNotifications.forEach(notification => {
-            notification.remove();
-        });
+function showNotification(message, type = 'info') {
+    const existingNotifications = document.querySelectorAll('.notification');
+    existingNotifications.forEach(notification => {
+        notification.remove();
+    });
 
-        const notification = document.createElement('div');
-        notification.className = `notification ${type}`;
-        notification.innerHTML = `
-            <div class="notification-content">
-                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle'}"></i>
-                <span>${message}</span>
-            </div>
-        `;
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <div class="notification-content">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle'}"></i>
+            <span>${message}</span>
+        </div>
+    `;
 
-        document.body.appendChild(notification);
+    document.body.appendChild(notification);
 
-        setTimeout(() => {
-            notification.style.opacity = '0';
-            setTimeout(() => notification.remove(), 300);
-        }, 5000);
-    }
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => notification.remove(), 300);
+    }, 5000);
+}
 
-    function toggleDebugConsole() {
-        debugMode = !debugMode;
-        debugConsole.style.display = debugMode ? 'block' : 'none';
-        debugToggleButton.querySelector('.debug-btn-text').textContent = debugMode ? 'HIDE DEBUG' : 'SHOW DEBUG';
-    }
+function toggleDebugConsole() {
+    debugMode = !debugMode;
+    debugConsole.style.display = debugMode ? 'block' : 'none';
+    debugToggleButton.querySelector('.debug-btn-text').textContent = debugMode ? 'HIDE DEBUG' : 'SHOW DEBUG';
+}
 
     // ==================== GLOBAL FUNCTION EXPORTS ====================
     // These functions need to be available in the global scope for HTML onclick handlers
