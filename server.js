@@ -1481,8 +1481,8 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
     await session.withTransaction(async () => {
       const { interestRate, repaymentPeriod, adminNotes } = req.body;
       
-      // Enhanced validation with range checks
-      if (typeof interestRate === 'undefined' || typeof repaymentPeriod === 'undefined') {
+      // Basic validation
+      if (!interestRate || !repaymentPeriod) {
         throw {
           status: 400,
           code: 'MISSING_REQUIRED_FIELDS',
@@ -1491,35 +1491,26 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
         };
       }
 
+      // Numeric validation
       const numericInterestRate = parseFloat(interestRate);
       const numericRepaymentPeriod = parseInt(repaymentPeriod);
 
-      if (isNaN(numericInterestRate)) {
+      if (isNaN(numericInterestRate) || isNaN(numericRepaymentPeriod)) {
         throw {
           status: 400,
-          code: 'INVALID_INTEREST_RATE',
-          message: 'Interest rate must be a valid number',
-          field: 'interestRate'
+          code: 'INVALID_NUMERIC_VALUES',
+          message: 'Interest rate and repayment period must be valid numbers'
         };
       }
 
+      // Range validation
       if (numericInterestRate < 5 || numericInterestRate > 30) {
         throw {
           status: 400,
           code: 'INTEREST_RATE_OUT_OF_RANGE',
           message: 'Interest rate must be between 5% and 30%',
-          field: 'interestRate',
           min: 5,
           max: 30
-        };
-      }
-
-      if (isNaN(numericRepaymentPeriod)) {
-        throw {
-          status: 400,
-          code: 'INVALID_REPAYMENT_PERIOD',
-          message: 'Repayment period must be a valid number',
-          field: 'repaymentPeriod'
         };
       }
 
@@ -1528,7 +1519,6 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
           status: 400,
           code: 'REPAYMENT_PERIOD_OUT_OF_RANGE',
           message: 'Repayment period must be between 7 and 90 days',
-          field: 'repaymentPeriod',
           min: 7,
           max: 90
         };
@@ -1536,7 +1526,7 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
 
       // Find loan with transaction safety
       const loan = await LoanApplication.findById(req.params.id)
-        .populate('userId', 'fullName phoneNumber email maxLoanLimit currentLoanBalance creditScore')
+        .populate('userId', 'fullName phoneNumber email maxLoanLimit currentLoanBalance')
         .session(session);
 
       if (!loan) {
@@ -1547,7 +1537,7 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
         };
       }
 
-      // Status validation with detailed message
+      // Status validation
       if (loan.status !== 'pending') {
         throw {
           status: 400,
@@ -1568,23 +1558,18 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
       dueDate.setUTCHours(23, 59, 59, 999); // End of day
       dueDate.setUTCDate(dueDate.getUTCDate() + numericRepaymentPeriod);
 
-      // Enhanced repayment schedule with metadata
+      // Create repayment schedule
       const repaymentSchedule = [{
         dueDate: dueDate,
         amount: totalAmount,
         paidAmount: 0,
-        status: 'pending',
-        paidAt: null,
-        isOverdue: false,
-        daysOverdue: 0,
-        penaltyApplied: 0
+        status: 'pending'
       }];
 
-      // Update loan with additional tracking fields
+      // Check credit limit
       const customer = loan.userId;
       const availableLimit = parseFloat((customer.maxLoanLimit - customer.currentLoanBalance).toFixed(2));
       
-      // Enhanced credit limit check with detailed response
       if (totalAmount > availableLimit) {
         throw {
           status: 400,
@@ -1593,39 +1578,30 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
           details: {
             requestedAmount: totalAmount,
             availableLimit: availableLimit,
-            difference: parseFloat((totalAmount - availableLimit).toFixed(2)),
-            currentBalance: customer.currentLoanBalance,
-            maxLimit: customer.maxLoanLimit
+            difference: parseFloat((totalAmount - availableLimit).toFixed(2))
           }
         };
       }
 
-      // Prepare loan updates
-      Object.assign(loan, {
-        status: 'active',
-        principal: principal,
-        interestRate: numericInterestRate,
-        interestAmount: interestAmount,
-        totalAmount: totalAmount,
-        dueDate: dueDate,
-        repaymentSchedule: repaymentSchedule,
-        approvedAt: new Date(),
-        approvedBy: req.admin._id,
-        adminNotes: adminNotes,
-        markedDefault: false,
-        overdueDays: 0,
-        overdueFees: 0,
-        lastStatusUpdate: new Date(),
-        lastOverdueCalculation: null,
-        creditScoreAtApproval: customer.creditScore
-      });
+      // Update loan document
+      loan.principal = principal;
+      loan.interestRate = numericInterestRate;
+      loan.interestAmount = interestAmount;
+      loan.totalAmount = totalAmount;
+      loan.dueDate = dueDate;
+      loan.repaymentSchedule = repaymentSchedule;
+      loan.status = 'active';
+      loan.approvedAt = new Date();
+      loan.approvedBy = req.admin._id;
+      loan.adminNotes = adminNotes;
+      loan.lastStatusUpdate = new Date();
 
-      // Update customer with transaction
+      // Update customer document
       customer.currentLoanBalance = parseFloat((customer.currentLoanBalance + totalAmount).toFixed(2));
       customer.activeLoan = loan._id;
       customer.lastLoanApprovalDate = new Date();
 
-      // Atomic save operations
+      // Execute all updates in transaction
       await Promise.all([
         loan.save({ session }),
         customer.save({ session }),
@@ -1639,79 +1615,64 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
             repaymentPeriod: numericRepaymentPeriod,
             adminNotes: adminNotes
           },
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent']
+          ipAddress: req.ip
         }], { session })
       ]);
 
-      // Prepare comprehensive response
+      // Prepare response data
       const responseData = {
         loanId: loan._id,
+        amount: principal,
+        totalAmount: totalAmount,
+        interestRate: numericInterestRate,
+        repaymentPeriod: numericRepaymentPeriod,
+        dueDate: dueDate,
         customer: {
           id: customer._id,
           name: customer.fullName,
-          phone: customer.phoneNumber,
-          email: customer.email
-        },
-        terms: {
-          principal: principal,
-          interestRate: numericInterestRate,
-          interestAmount: interestAmount,
-          totalAmount: totalAmount,
-          dueDate: dueDate,
-          repaymentPeriod: numericRepaymentPeriod
-        },
-        timestamps: {
-          approvedAt: loan.approvedAt,
-          createdAt: loan.createdAt
+          phone: customer.phoneNumber
         },
         processingTime: Date.now() - startTime
       };
 
-      // Async notifications (won't block response)
-      setImmediate(async () => {
+      // Send real-time notifications
+      setImmediate(() => {
         try {
-          // Real-time notifications
           io.to('adminRoom').emit('loanApproved', {
             ...responseData,
             adminName: req.admin.username
           });
 
-          io.to(`user_${customer._id}`).emit('loanApproved', responseData);
+          io.to(`user_${customer._id}`).emit('loanApproved', {
+            loanId: loan._id,
+            amount: principal,
+            totalAmount: totalAmount,
+            dueDate: dueDate
+          });
 
-          // Send email if configured
+          // Send email notification if configured
           if (customer.email && process.env.SEND_EMAILS === 'true') {
-            await sendEmail({
+            sendEmail({
               to: customer.email,
               subject: `Loan Approved - KES ${principal.toLocaleString()}`,
-              html: generateLoanApprovalEmail(customer, loan, responseData)
+              html: `
+                <h2>Loan Approved</h2>
+                <p>Your loan of KES ${principal.toLocaleString()} has been approved.</p>
+                <p>Total repayment amount: KES ${totalAmount.toLocaleString()}</p>
+                <p>Due date: ${dueDate.toLocaleDateString()}</p>
+              `
             });
           }
-
-          // Audit logging
-          await SystemAuditLog.create({
-            event: 'LOAN_APPROVED',
-            entityType: 'LOAN',
-            entityId: loan._id,
-            performedBy: req.admin._id,
-            metadata: responseData,
-            ipAddress: req.ip
-          });
         } catch (asyncError) {
-          console.error('Async approval tasks error:', asyncError);
-          // Log to error tracking system if available
+          console.error('Async notification error:', asyncError);
         }
       });
 
-      // Success response
+      // Send success response
       res.json({
         success: true,
         message: 'Loan approved successfully',
-        data: responseData,
-        metadata: {
-          serverTime: new Date(),
-          processingTime: `${responseData.processingTime}ms`
-        }
+        data: responseData
       });
     });
   } catch (error) {
@@ -1726,26 +1687,15 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
         success: false,
         code: error.code,
         message: error.message,
-        ...(error.details && { details: error.details }),
-        ...(error.field && { field: error.field }),
-        ...(error.min !== undefined && { min: error.min }),
-        ...(error.max !== undefined && { max: error.max })
+        ...(error.details && { details: error.details })
       });
     }
 
     console.error('Loan approval error:', error);
-    
-    // Enhanced error classification
-    const errorType = error.name === 'ValidationError' ? 'VALIDATION_ERROR' :
-                     error.name === 'MongoError' ? 'DATABASE_ERROR' :
-                     'PROCESSING_ERROR';
-    
     res.status(500).json({
       success: false,
-      code: errorType,
-      message: 'Failed to process loan approval',
-      systemError: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      timestamp: new Date()
+      code: 'SERVER_ERROR',
+      message: 'Failed to process loan approval'
     });
   } finally {
     await session.endSession();
