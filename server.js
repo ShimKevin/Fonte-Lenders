@@ -613,6 +613,24 @@ const customerSchema = new mongoose.Schema({
   activeLoan: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanApplication' }
 }, { timestamps: true });
 
+customerSchema.pre('save', async function(next) {
+  // Ensure currentLoanBalance is non-negative before saving
+  if (this.currentLoanBalance < 0) {
+    this.currentLoanBalance = 0;
+  }
+
+  // Only hash password if it was modified
+  if (!this.isModified('password')) return next();
+  
+  try {
+    const salt = await bcrypt.genSalt(12);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 const adminSchema = new mongoose.Schema({
   username: { type: String, unique: true, required: true },
   password: { type: String, required: true, select: false },
@@ -2598,6 +2616,16 @@ app.post('/api/admin/loans/:id/record-payment', authenticateAdmin, async (req, r
       return res.status(404).json({ success: false, message: 'Loan not found' });
     }
     
+    // Find the customer
+    const customer = await Customer.findById(loan.userId);
+    if (!customer) {
+      return res.status(404).json({ success: false, message: 'Customer not found' });
+    }
+
+    // ============== FIX: PREVENT NEGATIVE BALANCE ==============
+    // Calculate new balance ensuring it doesn't go below zero
+    const newBalance = Math.max(0, customer.currentLoanBalance - amount);
+    
     // Create payment record
     const payment = new Payment({
       userId: loan.userId,
@@ -2610,32 +2638,39 @@ app.post('/api/admin/loans/:id/record-payment', authenticateAdmin, async (req, r
     
     // Update loan status
     loan.amountPaid = (loan.amountPaid || 0) + amount;
+    
     if (loan.amountPaid >= loan.totalAmount) {
       loan.status = 'completed';
       loan.lastStatusUpdate = new Date();
       
-      // Update customer
-      await Customer.findByIdAndUpdate(loan.userId, {
-        $set: { activeLoan: null },
-        $inc: { currentLoanBalance: -amount }
-      });
+      // Update customer - set balance and clear active loan
+      customer.activeLoan = null;
+      customer.currentLoanBalance = newBalance;
     } else {
-      await Customer.findByIdAndUpdate(loan.userId, {
-        $inc: { currentLoanBalance: -amount }
-      });
+      // Update just the balance
+      customer.currentLoanBalance = newBalance;
     }
     
-    // Save changes
-    await Promise.all([payment.save(), loan.save()]);
+    // Save all changes
+    await Promise.all([
+      payment.save(), 
+      loan.save(),
+      customer.save()
+    ]);
     
     res.json({ 
       success: true,
       message: `Payment of KES ${amount} recorded`,
-      newBalance: loan.totalAmount - loan.amountPaid
+      newBalance: loan.totalAmount - loan.amountPaid,
+      customerBalance: customer.currentLoanBalance
     });
     
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      code: 'PAYMENT_RECORDING_ERROR'
+    });
   }
 });
 
