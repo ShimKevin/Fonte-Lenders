@@ -214,9 +214,9 @@ async function updateOverdueLoansAndNotify() {
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://kevinshimanjala:FonteLenders%40254@cluster0.g2bzscn.mongodb.net/fonte_lenders?retryWrites=true&w=majority&appName=Cluster0";
 
 const mongooseOptions = {
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 30000,
-  connectTimeoutMS: 5000,
+  serverSelectionTimeoutMS: 30000,  // Increased from 5000 to 30000 (30 seconds)
+  socketTimeoutMS: 45000,           // Increased from 30000 to 45000
+  connectTimeoutMS: 30000,          // Increased from 5000 to 30000
   retryWrites: true,
   retryReads: true,
   maxPoolSize: 10,
@@ -1142,17 +1142,21 @@ app.get('/api/admin/customers', authenticateAdmin, async (req, res) => {
         const sortDirection = sortOrder === 'asc' ? 1 : -1;
         
         // Build search filter with regex for partial matching
-        const filter = search ? {
-            $or: [
-                { customerId: { $regex: escapeRegex(search), $options: 'i' } },
-                { fullName: { $regex: escapeRegex(search), $options: 'i' } },
-                { phoneNumber: { $regex: escapeRegex(search), $options: 'i' } },
-                { email: { $regex: escapeRegex(search), $options: 'i' } }
-            ]
-        } : {};
+        const filter = {};
+        
+        // Apply search filter if search term exists
+        if (search && search.trim() !== '') {
+            const escapedSearch = escapeRegex(search.trim());
+            filter.$or = [
+                { customerId: { $regex: escapedSearch, $options: 'i' } },
+                { fullName: { $regex: escapedSearch, $options: 'i' } },
+                { phoneNumber: { $regex: escapedSearch, $options: 'i' } },
+                { email: { $regex: escapedSearch, $options: 'i' } }
+            ];
+        }
 
         // Add verification status filter if provided
-        if (req.query.verificationStatus) {
+        if (req.query.verificationStatus && ['pending', 'verified', 'rejected'].includes(req.query.verificationStatus)) {
             filter.verificationStatus = req.query.verificationStatus;
         }
 
@@ -1702,6 +1706,51 @@ app.patch('/api/admin/loan-applications/:id/approve', authenticateAdmin, async (
   }
 });
 
+app.patch('/api/admin/loan-applications/:id/reject', authenticateAdmin, async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const loan = await LoanApplication.findById(req.params.id);
+        
+        if (!loan) {
+            return res.status(404).json({ success: false, message: 'Loan not found' });
+        }
+        
+        if (loan.status !== 'pending') {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot reject loan with status: ${loan.status}`
+            });
+        }
+        
+        loan.status = 'rejected';
+        loan.rejectedAt = new Date();
+        loan.adminNotes = reason;
+        await loan.save();
+        
+        res.json({
+            success: true,
+            message: 'Loan rejected successfully'
+        });
+        
+        // Send email notification
+        const customer = await Customer.findById(loan.userId);
+        if (customer.email) {
+            await sendEmail({
+                to: customer.email,
+                subject: 'Loan Application Rejected',
+                html: `Your loan application has been rejected. Reason: ${reason}`
+            });
+        }
+        
+    } catch (error) {
+        console.error('Loan rejection error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to reject loan'
+        });
+    }
+});
+
 // ==================== UPDATED PAYMENT APPROVAL LOGIC ====================
 app.patch('/api/admin/payments/:id/approve', authenticateAdmin, async (req, res) => {
   const session = await mongoose.startSession();
@@ -1909,63 +1958,241 @@ function generateLoanApprovalEmail(customer, loan, loanDetails) {
     </div>
   `;
 }
-// ==================== LOAN REJECTION ENDPOINT ====================
-app.patch('/api/admin/loan-applications/:id/reject', authenticateAdmin, async (req, res) => {
+
+// ==================== FIXED PAYMENT STATUS ENDPOINT ====================
+app.patch('/api/admin/payments/:id/status', authenticateAdmin, async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
   try {
-    const { reason } = req.body;
+    const { status, reason } = req.body;
+    const startTime = Date.now();
     
-    const loan = await LoanApplication.findById(req.params.id)
-      .populate('userId', 'fullName phoneNumber email');
-    
-    if (!loan) {
-      return res.status(404).json({
-        success: false,
-        message: 'Loan application not found'
+    // Validate input
+    if (!['approved', 'rejected'].includes(status)) {
+      await session.abortTransaction();
+      return res.status(400).json({ 
+        success: false, 
+        code: 'INVALID_STATUS',
+        message: 'Invalid status value' 
       });
     }
 
-    if (loan.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: 'Loan is not in pending status'
-      });
-    }
-
-    loan.status = 'rejected';
-    loan.rejectedAt = new Date();
-    loan.adminNotes = reason;
-    loan.lastStatusUpdate = new Date();
-
-    await loan.save();
-
-    // Notify user
-    const customer = loan.userId;
-    if (customer) {
-      io.to(`user_${customer._id}`).emit('loanRejected', {
-        loanId: loan._id,
-        reason
-      });
-      
-      if (customer.email) {
-        await sendEmail({
-          to: customer.email,
-          subject: 'Loan Application Rejected',
-          html: `<p>Your loan application has been rejected. Reason: ${reason}</p>`
+    // Additional validation for rejections
+    if (status === 'rejected') {
+      if (!reason || reason.trim().length < 5) {
+        await session.abortTransaction();
+        return res.status(400).json({ 
+          success: false, 
+          code: 'INVALID_REASON',
+          message: 'Rejection reason must be at least 5 characters' 
         });
       }
     }
 
-    res.json({
-      success: true,
-      message: 'Loan rejected successfully'
-    });
-    
+    // Find payment with session
+    const payment = await Payment.findById(req.params.id)
+      .populate('userId', 'fullName phoneNumber email currentLoanBalance activeLoan')
+      .populate('loanId', 'amount amountPaid totalAmount status repaymentSchedule lastStatusUpdate')
+      .session(session);
+
+    if (!payment) {
+      await session.abortTransaction();
+      return res.status(404).json({ 
+        success: false, 
+        code: 'PAYMENT_NOT_FOUND',
+        message: 'Payment not found' 
+      });
+    }
+
+    // Check current payment status
+    if (payment.status !== 'pending') {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_PAYMENT_STATUS',
+        message: `Payment status is already "${payment.status}"`,
+        currentStatus: payment.status
+      });
+    }
+
+    // Process approval
+    if (status === 'approved') {
+      try {
+        const loan = payment.loanId;
+        const customer = payment.userId;
+        const paymentAmount = payment.amount;
+
+        // Update loan amount paid
+        loan.amountPaid = (loan.amountPaid || 0) + paymentAmount;
+        
+        // Apply payment to installments
+        let remainingAmount = paymentAmount;
+        for (const installment of loan.repaymentSchedule) {
+          if (['pending', 'partial', 'overdue'].includes(installment.status)) {
+            const installmentDue = installment.amount - (installment.paidAmount || 0);
+            const amountToApply = Math.min(remainingAmount, installmentDue);
+            
+            installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
+            installment.paidAt = new Date();
+            
+            // Update status
+            if (installment.paidAmount >= installment.amount) {
+              installment.status = 'paid';
+            } else if (amountToApply > 0) {
+              installment.status = 'partial';
+            }
+            
+            remainingAmount -= amountToApply;
+            
+            if (remainingAmount <= 0) break;
+          }
+        }
+        
+        // Check if loan is fully paid
+        const totalPaid = loan.amountPaid || 0;
+        const totalDue = loan.totalAmount || 0;
+        
+        if (totalPaid >= totalDue) {
+          loan.status = 'completed';
+          loan.lastStatusUpdate = new Date();
+          customer.activeLoan = null;
+        } else {
+          // Check if any installments are overdue
+          const now = new Date();
+          const hasOverdue = loan.repaymentSchedule.some(installment => 
+            installment.status !== 'paid' && 
+            new Date(installment.dueDate) < now
+          );
+          
+          if (hasOverdue) {
+            loan.status = 'overdue';
+          } else {
+            loan.status = 'active';
+          }
+        }
+        
+        // Update customer balance
+        customer.currentLoanBalance = Math.max(0, customer.currentLoanBalance - paymentAmount);
+        
+        // Update payment status
+        payment.status = 'approved';
+        payment.completedAt = new Date();
+        payment.approvedBy = req.admin.username;
+        
+        await Promise.all([
+          loan.save({ session }),
+          customer.save({ session }),
+          payment.save({ session }),
+          AdminActivityLog.create([{
+            adminId: req.admin._id,
+            action: 'PAYMENT_APPROVAL',
+            targetId: payment._id,
+            details: {
+              amount: paymentAmount,
+              loanId: loan._id,
+              customerId: customer._id
+            },
+            ipAddress: req.ip,
+            userAgent: req.headers['user-agent']
+          }], { session })
+        ]);
+
+        const responseData = {
+          userId: customer._id,
+          loanId: loan._id,
+          amount: paymentAmount,
+          newBalance: customer.currentLoanBalance,
+          loanStatus: loan.status,
+          processingTime: Date.now() - startTime
+        };
+
+        // Async notifications
+        setImmediate(() => {
+          try {
+            io.to(`user_${customer._id}`).emit('paymentApproved', responseData);
+            io.to('adminRoom').emit('paymentProcessed', {
+              ...responseData,
+              adminName: req.admin.username
+            });
+          } catch (socketError) {
+            console.error('Socket notification error:', socketError);
+          }
+        });
+
+        return res.json({ 
+          success: true,
+          data: responseData,
+          metadata: {
+            serverTime: new Date(),
+            processingTime: `${responseData.processingTime}ms`
+          }
+        });
+
+      } catch (error) {
+        await session.abortTransaction();
+        throw error;
+      }
+    } 
+    // Process rejection
+    else if (status === 'rejected') {
+      try {
+        payment.status = 'rejected';
+        payment.rejectionReason = reason;
+        payment.rejectedAt = new Date();
+        payment.rejectedBy = req.admin.username;
+        
+        await payment.save({ session });
+        await session.commitTransaction();
+        
+        const responseData = {
+          paymentId: payment._id,
+          amount: payment.amount,
+          reason: reason,
+          adminName: req.admin.username,
+          userId: payment.userId._id
+        };
+
+        setImmediate(() => {
+          try {
+            io.to(`user_${payment.userId._id}`).emit('paymentRejected', responseData);
+          } catch (socketError) {
+            console.error('Socket notification failed:', socketError);
+          }
+        });
+
+        return res.json({
+          success: true,
+          message: 'Payment rejected successfully',
+          data: responseData
+        });
+      } catch (error) {
+        await session.abortTransaction();
+        throw error;
+      }
+    }
   } catch (error) {
-    console.error('Loan rejection error:', error);
-    res.status(500).json({
+    // Handle transaction errors
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
+    let errorMessage = 'Failed to update payment status';
+    let statusCode = 500;
+    
+    if (error.code === 251) { // MongoDB transaction error
+      errorMessage = 'Transaction error occurred. Please try again.';
+      statusCode = 503; // Service Unavailable
+    }
+
+    res.status(statusCode).json({
       success: false,
-      message: 'Failed to reject loan'
+      code: error.codeName || 'PAYMENT_UPDATE_FAILED',
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  } finally {
+    await session.endSession();
   }
 });
 
@@ -3687,6 +3914,9 @@ const startServer = async () => {
     }
 
     await createInitialAdmin();
+    
+    // Run initial loan status update after DB connection
+    updateLoanStatusesJob();  // <<-- ADDED THIS LINE
 
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
