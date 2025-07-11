@@ -911,30 +911,63 @@ function backToDashboard() {
         });
     }
 
-    async function showLoanDetails(loanId) {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/admin/loan-applications/${loanId}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
-                }
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to load loan details');
-            }
-            
-            renderLoanDetails(data.loan);
-            loanDetailsModal.style.display = 'flex';
-            logDebugInfo('Loan details shown', data.loan);
-            
-        } catch (error) {
-            console.error('Error loading loan details:', error);
-            showNotification('Failed to load loan details', 'error');
-            logDebugError('Error loading loan details', error);
-        }
-    }
+// ======= FIX: INCLUDE DEFAULTED LOANS IN ACTIVE FILTER =======
+function showLoansSection(loanType) {
+  // Hide all sections first
+  document.querySelectorAll('.loans-section').forEach(section => {
+    section.style.display = 'none';
+  });
+  
+  // Show the selected section
+  const sectionId = `${loanType}-loans`;
+  const selectedSection = document.getElementById(sectionId);
+  if (selectedSection) {
+    selectedSection.style.display = 'block';
+  }
+
+  // Set the active button
+  document.querySelectorAll('.loans-nav-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  event.target.classList.add('active');
+
+  // Fetch and display loans based on type
+  let apiUrl = `${API_BASE_URL}/api/admin/loan-applications?`;
+  let query = {};
+  
+  if (loanType === 'pending') {
+    query.status = 'pending';
+    loansGridContainer.style.display = 'block';
+    loansTableContainer.style.display = 'none';
+  } else if (loanType === 'active') {
+    // Include both active and defaulted loans
+    query.status = { $in: ['active', 'defaulted'] };
+    loansGridContainer.style.display = 'block';
+    loansTableContainer.style.display = 'none';
+  } else if (loanType === 'completed') {
+    query.status = 'completed';
+    loansGridContainer.style.display = 'none';
+    loansTableContainer.style.display = 'block';
+  } else if (loanType === 'defaulted') {
+    query.status = 'defaulted';
+    loansGridContainer.style.display = 'none';
+    loansTableContainer.style.display = 'block';
+  } else if (loanType === 'rejected') {
+    query.status = 'rejected';
+    loansGridContainer.style.display = 'grid';
+    loansTableContainer.style.display = 'none';
+  } else if (loanType === 'all') {
+    // No status filter for all
+    loansGridContainer.style.display = 'none';
+    loansTableContainer.style.display = 'block';
+  }
+
+  // Add query parameters to URL
+  const queryString = new URLSearchParams(query).toString();
+  apiUrl += queryString;
+
+  fetchLoans(apiUrl, loanType);
+}
 
     function renderLoanDetails(loan) {
         const now = new Date();

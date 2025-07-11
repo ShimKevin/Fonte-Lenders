@@ -571,12 +571,16 @@ loanApplicationSchema.statics.updateLoanStatuses = async function() {
       }
     });
 
+    // ======= FIX: DO NOT AUTO-CHANGE DEFAULTED LOANS =======
+    // Keep defaulted loans as defaulted for admin visibility
+    // No status change needed here - maintain defaulted status
+
     console.log('✅ Loan status updates completed successfully');
     return true;
   } catch (error) {
     console.error('❌ Loan status update job failed:', error);
     throw error;
-  }
+  } 
 };
 
 const customerSchema = new mongoose.Schema({
@@ -2606,71 +2610,136 @@ app.get('/api/admin/pending-payments', authenticateAdmin, async (req, res) => {
 
 // Record manual payment
 app.post('/api/admin/loans/:id/record-payment', authenticateAdmin, async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
   try {
     const { amount, reference } = req.body;
     const loanId = req.params.id;
     
-    // Find the loan
-    const loan = await LoanApplication.findById(loanId);
+    // Find the loan with transaction
+    const loan = await LoanApplication.findById(loanId)
+      .session(session);
     if (!loan) {
-      return res.status(404).json({ success: false, message: 'Loan not found' });
+      await session.abortTransaction();
+      return res.status(404).json({ 
+        success: false, 
+        code: 'LOAN_NOT_FOUND',
+        message: 'Loan not found' 
+      });
     }
     
-    // Find the customer
-    const customer = await Customer.findById(loan.userId);
+    // Find the customer with transaction
+    const customer = await Customer.findById(loan.userId)
+      .session(session);
     if (!customer) {
-      return res.status(404).json({ success: false, message: 'Customer not found' });
+      await session.abortTransaction();
+      return res.status(404).json({ 
+        success: false, 
+        code: 'CUSTOMER_NOT_FOUND',
+        message: 'Customer not found' 
+      });
     }
 
-    // ============== FIX: PREVENT NEGATIVE BALANCE ==============
-    // Calculate new balance ensuring it doesn't go below zero
-    const newBalance = Math.max(0, customer.currentLoanBalance - amount);
+    // ======= FIX: PREVENT NEGATIVE BALANCE ========
+    const currentBalance = customer.currentLoanBalance;
+    const paymentAmount = parseFloat(amount);
+    const newBalance = Math.max(0, currentBalance - paymentAmount);
     
     // Create payment record
     const payment = new Payment({
       userId: loan.userId,
       loanId: loan._id,
-      amount,
+      amount: paymentAmount,
       reference: reference || `MANUAL-${Date.now()}`,
       paymentMethod: 'Manual',
-      status: 'approved'
+      status: 'approved',
+      recordedBy: req.admin.username
     });
     
-    // Update loan status
-    loan.amountPaid = (loan.amountPaid || 0) + amount;
+    // ======= FIX: APPLY PAYMENT TO INSTALLMENTS =======
+    let remainingAmount = paymentAmount;
+    const sortedInstallments = loan.repaymentSchedule
+      .sort((a, b) => a.dueDate - b.dueDate)
+      .filter(i => i.status !== 'paid');
     
+    for (const installment of sortedInstallments) {
+      if (remainingAmount <= 0) break;
+      
+      const amountDue = installment.amount - (installment.paidAmount || 0);
+      if (amountDue <= 0) continue;
+      
+      const amountToApply = Math.min(remainingAmount, amountDue);
+      installment.paidAmount = (installment.paidAmount || 0) + amountToApply;
+      remainingAmount -= amountToApply;
+      
+      // Update installment status
+      if (installment.paidAmount >= installment.amount) {
+        installment.status = 'paid';
+      } else {
+        installment.status = 'partial';
+      }
+      
+      installment.paidAt = new Date();
+    }
+    
+    // ======= FIX: UPDATE LOAN STATUS =======
+    const previousPaid = loan.amountPaid || 0;
+    loan.amountPaid = previousPaid + paymentAmount;
+    
+    // Check if loan is fully paid
     if (loan.amountPaid >= loan.totalAmount) {
       loan.status = 'completed';
       loan.lastStatusUpdate = new Date();
-      
-      // Update customer - set balance and clear active loan
       customer.activeLoan = null;
-      customer.currentLoanBalance = newBalance;
     } else {
-      // Update just the balance
-      customer.currentLoanBalance = newBalance;
+      // ======= FIX: MAINTAIN ACTIVE STATUS =======
+      // Keep as active even if overdue (batch job handles default status)
+      loan.status = 'active';
+      loan.lastStatusUpdate = new Date();
     }
     
-    // Save all changes
+    // ======= FIX: UPDATE CUSTOMER BALANCE =======
+    customer.currentLoanBalance = newBalance;
+    
+    // Save all changes in transaction
     await Promise.all([
-      payment.save(), 
-      loan.save(),
-      customer.save()
+      payment.save({ session }),
+      loan.save({ session }),
+      customer.save({ session })
     ]);
+    
+    await session.commitTransaction();
+    
+    // Calculate remaining balance for response
+    const remainingLoanBalance = Math.max(0, loan.totalAmount - loan.amountPaid);
     
     res.json({ 
       success: true,
-      message: `Payment of KES ${amount} recorded`,
-      newBalance: loan.totalAmount - loan.amountPaid,
-      customerBalance: customer.currentLoanBalance
+      message: `Payment of KES ${paymentAmount} recorded`,
+      data: {
+        paymentId: payment._id,
+        amount: paymentAmount,
+        loanBalance: remainingLoanBalance,
+        customerBalance: customer.currentLoanBalance,
+        loanStatus: loan.status,
+        isFullyPaid: loan.status === 'completed'
+      }
     });
     
   } catch (error) {
+    // Handle transaction errors
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    
     res.status(500).json({ 
       success: false, 
-      message: error.message,
-      code: 'PAYMENT_RECORDING_ERROR'
+      code: 'PAYMENT_RECORDING_ERROR',
+      message: error.message || 'Failed to record payment'
     });
+  } finally {
+    await session.endSession();
   }
 });
 
