@@ -341,96 +341,97 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ==================== INITIALIZATION ====================
-    function initAdmin() {
-        // Fix favicon 404 error
-        const faviconLink = document.createElement('link');
-        faviconLink.rel = 'icon';
-        faviconLink.type = 'image/svg+xml';
-        faviconLink.href = 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>';
-        document.head.appendChild(faviconLink);
-        
-        // Event listeners
-        loginButton.addEventListener('click', handleLogin);
-        logoutButton.addEventListener('click', handleLogout);
-        debugToggleButton.addEventListener('click', toggleDebugConsole);
-        refreshButton.addEventListener('click', refreshAdminData);
-        pendingPaymentsBtn.addEventListener('click', showPendingPayments);
-        processBulkBtn.addEventListener('click', processBulkLimitUpdate);
+function initAdmin() {
+    // Fix favicon 404 error
+    const faviconLink = document.createElement('link');
+    faviconLink.rel = 'icon';
+    faviconLink.type = 'image/svg+xml';
+    faviconLink.href = 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>';
+    document.head.appendChild(faviconLink);
+    
+    // Event listeners
+    loginButton.addEventListener('click', handleLogin);
+    logoutButton.addEventListener('click', handleLogout);
+    debugToggleButton.addEventListener('click', toggleDebugConsole);
+    refreshButton.addEventListener('click', refreshAdminData);
+    pendingPaymentsBtn.addEventListener('click', showPendingPayments);
+    processBulkBtn.addEventListener('click', processBulkLimitUpdate);
 
-        // Handle Enter key in login form
-        usernameInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') handleLogin();
-        });
-        passwordInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') handleLogin();
-        });
-        searchCustomerInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') searchCustomer();
-        });
+    // Handle Enter key in login form
+    usernameInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') handleLogin();
+    });
+    passwordInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') handleLogin();
+    });
+    searchCustomerInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') searchCustomer();
+    });
 
-        // Add event listener for search button
-        const searchButton = document.getElementById('search-customer-btn');
-        if (searchButton) {
-            searchButton.addEventListener('click', searchCustomer);
-        }
-
-        // Loan card click handlers
-        document.querySelectorAll('[data-loan-type]').forEach(card => {
-            card.addEventListener('click', function() {
-                const loanType = this.getAttribute('data-loan-type');
-                showLoansSection(loanType);
-            });
-        });
-
-        // Modal close handlers
-        document.querySelectorAll('.close-modal').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const modalId = this.getAttribute('data-modal');
-                document.getElementById(modalId).style.display = 'none';
-            });
-        });
-
-        // Back to dashboard handlers
-        document.querySelectorAll('.back-to-dashboard').forEach(button => {
-            button.addEventListener('click', window.backToDashboard);
-        });
-        
-        // Explicit handler for debug console back button
-        const debugBackButton = document.getElementById('debug-back-btn');
-        if (debugBackButton) {
-            debugBackButton.addEventListener('click', window.backToDashboard);
-        }
-
-        // Handle back buttons reliably
-        const hideLoansBtn = document.getElementById('hide-loans-btn');
-        if (hideLoansBtn) hideLoansBtn.addEventListener('click', window.backToDashboard);
-        
-        if (hidePaymentsBtn) {
-            hidePaymentsBtn.addEventListener('click', window.backToDashboard);
-        }
-        
-        const backToDashboardBtn = document.getElementById('back-to-dashboard-btn');
-        if (backToDashboardBtn) {
-            backToDashboardBtn.onclick = null; // Remove existing onclick handler
-            backToDashboardBtn.addEventListener('click', window.backToDashboard);
-        }
-
-        // Window click handler for modals
-        window.addEventListener('click', function(event) {
-            if (event.target.classList.contains('modal')) {
-                event.target.style.display = 'none';
-            }
-        });
-
-        // Check for existing token
-        const token = localStorage.getItem('adminToken');
-        if (token) {
-            validateToken(token);
-        }
-        
-        // Initialize debug mode
-        initDebugMode();
+    // Add event listener for search button
+    const searchButton = document.getElementById('search-customer-btn');
+    if (searchButton) {
+        searchButton.addEventListener('click', searchCustomer);
     }
+
+    // UPDATED: Loan card click handlers using event delegation
+    document.getElementById('admin-grid').addEventListener('click', function(e) {
+        const card = e.target.closest('[data-loan-type]');
+        if (card) {
+            const loanType = card.getAttribute('data-loan-type');
+            showLoansSection(loanType);
+        }
+    });
+
+    // Modal close handlers
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const modalId = this.getAttribute('data-modal');
+            document.getElementById(modalId).style.display = 'none';
+        });
+    });
+
+    // Back to dashboard handlers
+    document.querySelectorAll('.back-to-dashboard').forEach(button => {
+        button.addEventListener('click', window.backToDashboard);
+    });
+    
+    // Explicit handler for debug console back button
+    const debugBackButton = document.getElementById('debug-back-btn');
+    if (debugBackButton) {
+        debugBackButton.addEventListener('click', window.backToDashboard);
+    }
+
+    // Handle back buttons reliably
+    const hideLoansBtn = document.getElementById('hide-loans-btn');
+    if (hideLoansBtn) hideLoansBtn.addEventListener('click', window.backToDashboard);
+    
+    if (hidePaymentsBtn) {
+        hidePaymentsBtn.addEventListener('click', window.backToDashboard);
+    }
+    
+    const backToDashboardBtn = document.getElementById('back-to-dashboard-btn');
+    if (backToDashboardBtn) {
+        backToDashboardBtn.onclick = null; // Remove existing onclick handler
+        backToDashboardBtn.addEventListener('click', window.backToDashboard);
+    }
+
+    // Window click handler for modals
+    window.addEventListener('click', function(event) {
+        if (event.target.classList.contains('modal')) {
+            event.target.style.display = 'none';
+        }
+    });
+
+    // Check for existing token
+    const token = localStorage.getItem('adminToken');
+    if (token) {
+        validateToken(token);
+    }
+    
+    // Initialize debug mode
+    initDebugMode();
+}
 
     // ==================== AUTHENTICATION FUNCTIONS ====================
     async function handleLogin() {
@@ -668,32 +669,62 @@ document.addEventListener('DOMContentLoaded', function() {
         logDebugInfo('Dashboard shown');
     }
 
-    function showLoansSection(loanType) {
-        currentView = 'loans';
-        currentLoanType = loanType;
-        
-        // Hide other sections
-        pendingPaymentsSection.classList.add('hidden');
-        customerProfileSection.classList.add('hidden');
-        document.getElementById('admin-grid').style.display = 'none';
-        
-        // Show loans section
-        loansSection.classList.remove('hidden');
-        document.getElementById('loans-section-title').textContent = `${loanType.charAt(0).toUpperCase() + loanType.slice(1)} Loans`;
-        
-        // Show appropriate view (grid for active loans, table for others)
-        if (loanType === 'active') {
-            loansGridContainer.style.display = 'block';
-            loansTableContainer.style.display = 'none';
-        } else {
-            loansGridContainer.style.display = 'none';
-            loansTableContainer.style.display = 'block';
-        }
-        
-        // Load data
-        refreshLoansData();
-        logDebugInfo(`Loans section shown: ${loanType}`);
+function showLoansSection(loanType) {
+    currentView = 'loans';
+    currentLoanType = loanType;
+    
+    // Hide other sections
+    pendingPaymentsSection.classList.add('hidden');
+    customerProfileSection.classList.add('hidden');
+    document.getElementById('admin-grid').style.display = 'none';
+    
+    // Show loans section
+    loansSection.classList.remove('hidden');
+    document.getElementById('loans-section-title').textContent = `${loanType.charAt(0).toUpperCase() + loanType.slice(1)} Loans`;
+    
+    // Show appropriate view (grid for active loans, table for others)
+    if (loanType === 'active') {
+        loansGridContainer.style.display = 'block';
+        loansTableContainer.style.display = 'none';
+    } else {
+        loansGridContainer.style.display = 'none';
+        loansTableContainer.style.display = 'block';
     }
+    
+    // Build the API URL with proper filtering
+    let apiUrl = `${API_BASE_URL}/api/admin/loan-applications?`;
+    
+    // Handle different loan types with appropriate status filters
+    switch(loanType) {
+        case 'active':
+            // Show active AND defaulted loans (both are considered "active" until fully paid)
+            apiUrl += 'status=active&status=defaulted';
+            break;
+            
+        case 'completed':
+            // Show only fully paid/completed loans
+            apiUrl += 'status=completed';
+            break;
+            
+        case 'pending':
+            // Show pending loans (exclude rejected)
+            apiUrl += 'status=pending';
+            break;
+            
+        case 'all':
+            // Show all loans EXCEPT rejected
+            apiUrl += 'status=active&status=defaulted&status=completed&status=pending';
+            break;
+            
+        default:
+            // For any other loan type, use the type as status but exclude rejected
+            apiUrl += `status=${loanType}`;
+    }
+    
+    // Fetch loans with the constructed URL
+    fetchLoans(apiUrl, loanType);
+    logDebugInfo(`Loans section shown: ${loanType}`, { apiUrl });
+}
 
     function showPendingPayments() {
         currentView = 'pending-payments';
