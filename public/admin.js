@@ -182,97 +182,229 @@ document.addEventListener('DOMContentLoaded', function() {
     const processBulkBtn = document.getElementById('process-bulk-btn');
     const bulkUpdateResult = document.getElementById('bulkUpdateResult');
 
-// Initialize the admin interface
-initAdmin();
-
-function initAdmin() {
-    // Fix favicon 404 error
-    const faviconLink = document.createElement('link');
-    faviconLink.rel = 'icon';
-    faviconLink.type = 'image/svg+xml';
-    faviconLink.href = 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>';
-    document.head.appendChild(faviconLink);
-    
-    // Event listeners
-    loginButton.addEventListener('click', handleLogin);
-    logoutButton.addEventListener('click', handleLogout);
-    debugToggleButton.addEventListener('click', toggleDebugConsole);
-    refreshButton.addEventListener('click', refreshAdminData);
-    pendingPaymentsBtn.addEventListener('click', showPendingPayments);
-    processBulkBtn.addEventListener('click', processBulkLimitUpdate);
-
-    // Handle Enter key in login form - FIXED ENTER KEY SUPPORT
-    usernameInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') handleLogin();
-    });
-    passwordInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') handleLogin();
-    });
-    searchCustomerInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') searchCustomer();
-    });
-
-    // Add event listener for search button - FIXED SEARCH BUTTON
-    const searchButton = document.getElementById('search-customer-btn');
-    if (searchButton) {
-        searchButton.addEventListener('click', searchCustomer);
-    }
-
-    // Loan card click handlers - FIXED ALL CARDS OPENING
-    document.querySelectorAll('[data-loan-type]').forEach(card => {
-        card.addEventListener('click', function() {
-            const loanType = this.getAttribute('data-loan-type');
-            showLoansSection(loanType);
+    // ==================== CORE FUNCTIONS ====================
+    function backToDashboard() {
+        // Close all open modals
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.style.display = 'none';
         });
-    });
 
-    // Modal close handlers
-    document.querySelectorAll('.close-modal').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const modalId = this.getAttribute('data-modal');
-            document.getElementById(modalId).style.display = 'none';
-        });
-    });
+        // Close debug console
+        debugMode = false;
+        debugConsole.style.display = 'none';
+        debugToggleButton.querySelector('.debug-btn-text').textContent = 'SHOW DEBUG';
+        localStorage.setItem('debugMode', 'false');
 
-    // Back to dashboard handlers - FIXED BACK TO DASHBOARD
-    // Unified handler for all back-to-dashboard elements
-    document.querySelectorAll('.back-to-dashboard').forEach(button => {
-        button.addEventListener('click', backToDashboard);
-    });
-    
-    // Explicit handler for debug console back button
-    const debugBackButton = document.getElementById('debug-back-btn');
-    if (debugBackButton) {
-        debugBackButton.addEventListener('click', backToDashboard);
+        // Reset to dashboard view
+        showDashboard();
+        
+        // Clear customer search
+        searchCustomerInput.value = '';
+        customerDetailsContainer.innerHTML = '';
+        
+        logDebugInfo('Navigated back to dashboard');
     }
 
-    // Handle back buttons reliably
-    const hideLoansBtn = document.getElementById('hide-loans-btn');
-    if (hideLoansBtn) hideLoansBtn.addEventListener('click', backToDashboard);
-    
-    if (hidePaymentsBtn) {
-        hidePaymentsBtn.addEventListener('click', backToDashboard);
-    }
-    
-    const backToDashboardBtn = document.getElementById('back-to-dashboard-btn');
-    if (backToDashboardBtn) backToDashboardBtn.addEventListener('click', backToDashboard);
-
-    // Window click handler for modals
-    window.addEventListener('click', function(event) {
-        if (event.target.classList.contains('modal')) {
-            event.target.style.display = 'none';
+    async function fetchLoans(apiUrl, loanType) {
+        try {
+            const response = await fetch(apiUrl, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to load loans');
+            }
+            
+            if (loanType === 'active') {
+                renderActiveLoansGrid(data.applications);
+            } else {
+                renderLoansTable(data.applications);
+            }
+            
+            logDebugInfo(`Loans data loaded: ${loanType}`, data);
+            
+        } catch (error) {
+            console.error('Error loading loans:', error);
+            showNotification('Failed to load loans', 'error');
+            logDebugError('Error loading loans', error);
         }
-    });
-
-    // Check for existing token
-    const token = localStorage.getItem('adminToken');
-    if (token) {
-        validateToken(token);
     }
-    
-    // Initialize debug mode
-    initDebugMode();
-}
+
+    async function searchCustomer() {
+        const searchTerm = searchCustomerInput.value.trim();
+        
+        // Clear previous results and show loading state
+        customerDetailsContainer.innerHTML = '<div class="loading-spinner"></div>';
+        searchCustomerInput.disabled = true;
+        
+        if (!searchTerm) {
+            showNotification('Please enter a search term', 'error');
+            customerDetailsContainer.innerHTML = '';
+            searchCustomerInput.disabled = false;
+            return;
+        }
+        
+        try {
+            // Show loading indicator on search button
+            const searchButton = document.getElementById('search-customer-btn');
+            const originalButtonText = searchButton?.innerHTML || '';
+            if (searchButton) {
+                searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
+                searchButton.disabled = true;
+            }
+            
+            const response = await fetch(`${API_BASE_URL}/api/admin/customers?search=${encodeURIComponent(searchTerm)}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                }
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Search failed with status ${response.status}`);
+            }
+            
+            const data = await response.json();
+            const customers = data.data || [];
+            
+            if (!customers || customers.length === 0) {
+                customerDetailsContainer.innerHTML = `
+                    <div class="no-results">
+                        <i class="fas fa-search"></i>
+                        <h4>No customers found</h4>
+                        <p>Try searching by full name, phone number, or customer ID</p>
+                        <p>Examples: "John Doe", "0712345678", "CUST-123"</p>
+                    </div>
+                `;
+                showNotification('No matching customers found', 'info');
+                return;
+            }
+            
+            renderCustomerSearchResults(customers);
+            showNotification(`Found ${customers.length} customer(s)`, 'success');
+            logDebugInfo('Customer search results', { searchTerm, results: customers });
+            
+        } catch (error) {
+            console.error('Search error:', error);
+            customerDetailsContainer.innerHTML = `
+                <div class="search-error">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h4>Search Failed</h4>
+                    <p>${error.message || 'An error occurred while searching'}</p>
+                    <button class="retry-btn" onclick="searchCustomer()">
+                        <i class="fas fa-sync-alt"></i> Try Again
+                    </button>
+                </div>
+            `;
+            
+            showNotification(error.message || 'Search failed', 'error');
+            logDebugError('Customer search failed', error);
+        } finally {
+            // Reset button state
+            const searchButton = document.getElementById('search-customer-btn');
+            if (searchButton) {
+                searchButton.innerHTML = originalButtonText;
+                searchButton.disabled = false;
+            }
+            searchCustomerInput.disabled = false;
+        }
+    }
+
+    // ==================== INITIALIZATION ====================
+    function initAdmin() {
+        // Fix favicon 404 error
+        const faviconLink = document.createElement('link');
+        faviconLink.rel = 'icon';
+        faviconLink.type = 'image/svg+xml';
+        faviconLink.href = 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>';
+        document.head.appendChild(faviconLink);
+        
+        // Event listeners
+        loginButton.addEventListener('click', handleLogin);
+        logoutButton.addEventListener('click', handleLogout);
+        debugToggleButton.addEventListener('click', toggleDebugConsole);
+        refreshButton.addEventListener('click', refreshAdminData);
+        pendingPaymentsBtn.addEventListener('click', showPendingPayments);
+        processBulkBtn.addEventListener('click', processBulkLimitUpdate);
+
+        // Handle Enter key in login form
+        usernameInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') handleLogin();
+        });
+        passwordInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') handleLogin();
+        });
+        searchCustomerInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') searchCustomer();
+        });
+
+        // Add event listener for search button
+        const searchButton = document.getElementById('search-customer-btn');
+        if (searchButton) {
+            searchButton.addEventListener('click', searchCustomer);
+        }
+
+        // Loan card click handlers
+        document.querySelectorAll('[data-loan-type]').forEach(card => {
+            card.addEventListener('click', function() {
+                const loanType = this.getAttribute('data-loan-type');
+                showLoansSection(loanType);
+            });
+        });
+
+        // Modal close handlers
+        document.querySelectorAll('.close-modal').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const modalId = this.getAttribute('data-modal');
+                document.getElementById(modalId).style.display = 'none';
+            });
+        });
+
+        // Back to dashboard handlers
+        document.querySelectorAll('.back-to-dashboard').forEach(button => {
+            button.addEventListener('click', backToDashboard);
+        });
+        
+        // Explicit handler for debug console back button
+        const debugBackButton = document.getElementById('debug-back-btn');
+        if (debugBackButton) {
+            debugBackButton.addEventListener('click', backToDashboard);
+        }
+
+        // Handle back buttons reliably
+        const hideLoansBtn = document.getElementById('hide-loans-btn');
+        if (hideLoansBtn) hideLoansBtn.addEventListener('click', backToDashboard);
+        
+        if (hidePaymentsBtn) {
+            hidePaymentsBtn.addEventListener('click', backToDashboard);
+        }
+        
+        const backToDashboardBtn = document.getElementById('back-to-dashboard-btn');
+        if (backToDashboardBtn) backToDashboardBtn.addEventListener('click', backToDashboard);
+
+        // Window click handler for modals
+        window.addEventListener('click', function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        });
+
+        // Check for existing token
+        const token = localStorage.getItem('adminToken');
+        if (token) {
+            validateToken(token);
+        }
+        
+        // Initialize debug mode
+        initDebugMode();
+    }
+
+    initAdmin();
+
     // ==================== AUTHENTICATION FUNCTIONS ====================
     async function handleLogin() {
         const username = usernameInput.value.trim();
@@ -499,94 +631,70 @@ function initAdmin() {
         });
     }
 
-// ==================== UI FUNCTIONS ====================
-function showDashboard() {
-    currentView = 'dashboard';
-    loansSection.classList.add('hidden');
-    pendingPaymentsSection.classList.add('hidden');
-    customerProfileSection.classList.add('hidden');
-    document.getElementById('admin-grid').style.display = 'grid';
-    logDebugInfo('Dashboard shown');
-}
-
-function showLoansSection(loanType) {
-    currentView = 'loans';
-    currentLoanType = loanType;
-    
-    // Hide other sections
-    pendingPaymentsSection.classList.add('hidden');
-    customerProfileSection.classList.add('hidden');
-    document.getElementById('admin-grid').style.display = 'none';
-    
-    // Show loans section
-    loansSection.classList.remove('hidden');
-    document.getElementById('loans-section-title').textContent = `${loanType.charAt(0).toUpperCase() + loanType.slice(1)} Loans`;
-    
-    // Show appropriate view (grid for active loans, table for others)
-    if (loanType === 'active') {
-        loansGridContainer.style.display = 'block';
-        loansTableContainer.style.display = 'none';
-    } else {
-        loansGridContainer.style.display = 'none';
-        loansTableContainer.style.display = 'block';
+    // ==================== UI FUNCTIONS ====================
+    function showDashboard() {
+        currentView = 'dashboard';
+        loansSection.classList.add('hidden');
+        pendingPaymentsSection.classList.add('hidden');
+        customerProfileSection.classList.add('hidden');
+        document.getElementById('admin-grid').style.display = 'grid';
+        logDebugInfo('Dashboard shown');
     }
-    
-    // Load data
-    refreshLoansData();
-    logDebugInfo(`Loans section shown: ${loanType}`);
-}
 
-function showPendingPayments() {
-    currentView = 'pending-payments';
-    loansSection.classList.add('hidden');
-    customerProfileSection.classList.add('hidden');
-    document.getElementById('admin-grid').style.display = 'none';
-    pendingPaymentsSection.classList.remove('hidden');
-    refreshPendingPayments();
-    logDebugInfo('Pending payments section shown');
-}
+    function showLoansSection(loanType) {
+        currentView = 'loans';
+        currentLoanType = loanType;
+        
+        // Hide other sections
+        pendingPaymentsSection.classList.add('hidden');
+        customerProfileSection.classList.add('hidden');
+        document.getElementById('admin-grid').style.display = 'none';
+        
+        // Show loans section
+        loansSection.classList.remove('hidden');
+        document.getElementById('loans-section-title').textContent = `${loanType.charAt(0).toUpperCase() + loanType.slice(1)} Loans`;
+        
+        // Show appropriate view (grid for active loans, table for others)
+        if (loanType === 'active') {
+            loansGridContainer.style.display = 'block';
+            loansTableContainer.style.display = 'none';
+        } else {
+            loansGridContainer.style.display = 'none';
+            loansTableContainer.style.display = 'block';
+        }
+        
+        // Load data
+        refreshLoansData();
+        logDebugInfo(`Loans section shown: ${loanType}`);
+    }
 
-function showCustomerProfile(customer) {
-    currentView = 'customer-profile';
-    currentCustomer = customer;
-    loansSection.classList.add('hidden');
-    pendingPaymentsSection.classList.add('hidden');
-    document.getElementById('admin-grid').style.display = 'none';
-    customerProfileSection.classList.remove('hidden');
-    
-    renderCustomerProfile(customer);
-    logDebugInfo('Customer profile shown', customer);
-}
+    function showPendingPayments() {
+        currentView = 'pending-payments';
+        loansSection.classList.add('hidden');
+        customerProfileSection.classList.add('hidden');
+        document.getElementById('admin-grid').style.display = 'none';
+        pendingPaymentsSection.classList.remove('hidden');
+        refreshPendingPayments();
+        logDebugInfo('Pending payments section shown');
+    }
 
-function backToCustomerSearch() {
-    showDashboard();
-    customerDetailsContainer.innerHTML = '';
-    logDebugInfo('Back to customer search');
-}
+    function showCustomerProfile(customer) {
+        currentView = 'customer-profile';
+        currentCustomer = customer;
+        loansSection.classList.add('hidden');
+        pendingPaymentsSection.classList.add('hidden');
+        document.getElementById('admin-grid').style.display = 'none';
+        customerProfileSection.classList.remove('hidden');
+        
+        renderCustomerProfile(customer);
+        logDebugInfo('Customer profile shown', customer);
+    }
 
-// FIXED: Enhanced back to dashboard function
-// FIXED: Enhanced back to dashboard function
-function backToDashboard() {
-    // Close all open modals
-    document.querySelectorAll('.modal').forEach(modal => {
-        modal.style.display = 'none';
-    });
-
-    // Close debug console
-    debugMode = false;
-    debugConsole.style.display = 'none';
-    debugToggleButton.querySelector('.debug-btn-text').textContent = 'SHOW DEBUG';
-    localStorage.setItem('debugMode', 'false');
-
-    // Reset to dashboard view
-    showDashboard();
-    
-    // Clear customer search
-    searchCustomerInput.value = '';
-    customerDetailsContainer.innerHTML = '';
-    
-    logDebugInfo('Navigated back to dashboard');
-}
+    function backToCustomerSearch() {
+        showDashboard();
+        customerDetailsContainer.innerHTML = '';
+        logDebugInfo('Back to customer search');
+    }
 
     // ==================== DATA LOADING FUNCTIONS ====================
     async function loadAdminData() {
@@ -911,63 +1019,62 @@ function backToDashboard() {
         });
     }
 
-// ======= FIX: INCLUDE DEFAULTED LOANS IN ACTIVE FILTER =======
-function showLoansSection(loanType) {
-  // Hide all sections first
-  document.querySelectorAll('.loans-section').forEach(section => {
-    section.style.display = 'none';
-  });
-  
-  // Show the selected section
-  const sectionId = `${loanType}-loans`;
-  const selectedSection = document.getElementById(sectionId);
-  if (selectedSection) {
-    selectedSection.style.display = 'block';
-  }
+    function showLoansSection(loanType) {
+        // Hide all sections first
+        document.querySelectorAll('.loans-section').forEach(section => {
+            section.style.display = 'none';
+        });
+        
+        // Show the selected section
+        const sectionId = `${loanType}-loans`;
+        const selectedSection = document.getElementById(sectionId);
+        if (selectedSection) {
+            selectedSection.style.display = 'block';
+        }
 
-  // Set the active button
-  document.querySelectorAll('.loans-nav-btn').forEach(btn => {
-    btn.classList.remove('active');
-  });
-  event.target.classList.add('active');
+        // Set the active button
+        document.querySelectorAll('.loans-nav-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        event.target.classList.add('active');
 
-  // Fetch and display loans based on type
-  let apiUrl = `${API_BASE_URL}/api/admin/loan-applications?`;
-  let query = {};
-  
-  if (loanType === 'pending') {
-    query.status = 'pending';
-    loansGridContainer.style.display = 'block';
-    loansTableContainer.style.display = 'none';
-  } else if (loanType === 'active') {
-    // Include both active and defaulted loans
-    query.status = { $in: ['active', 'defaulted'] };
-    loansGridContainer.style.display = 'block';
-    loansTableContainer.style.display = 'none';
-  } else if (loanType === 'completed') {
-    query.status = 'completed';
-    loansGridContainer.style.display = 'none';
-    loansTableContainer.style.display = 'block';
-  } else if (loanType === 'defaulted') {
-    query.status = 'defaulted';
-    loansGridContainer.style.display = 'none';
-    loansTableContainer.style.display = 'block';
-  } else if (loanType === 'rejected') {
-    query.status = 'rejected';
-    loansGridContainer.style.display = 'grid';
-    loansTableContainer.style.display = 'none';
-  } else if (loanType === 'all') {
-    // No status filter for all
-    loansGridContainer.style.display = 'none';
-    loansTableContainer.style.display = 'block';
-  }
+        // Fetch and display loans based on type
+        let apiUrl = `${API_BASE_URL}/api/admin/loan-applications?`;
+        let query = {};
+        
+        if (loanType === 'pending') {
+            query.status = 'pending';
+            loansGridContainer.style.display = 'block';
+            loansTableContainer.style.display = 'none';
+        } else if (loanType === 'active') {
+            // Include both active and defaulted loans
+            query.status = { $in: ['active', 'defaulted'] };
+            loansGridContainer.style.display = 'block';
+            loansTableContainer.style.display = 'none';
+        } else if (loanType === 'completed') {
+            query.status = 'completed';
+            loansGridContainer.style.display = 'none';
+            loansTableContainer.style.display = 'block';
+        } else if (loanType === 'defaulted') {
+            query.status = 'defaulted';
+            loansGridContainer.style.display = 'none';
+            loansTableContainer.style.display = 'block';
+        } else if (loanType === 'rejected') {
+            query.status = 'rejected';
+            loansGridContainer.style.display = 'grid';
+            loansTableContainer.style.display = 'none';
+        } else if (loanType === 'all') {
+            // No status filter for all
+            loansGridContainer.style.display = 'none';
+            loansTableContainer.style.display = 'block';
+        }
 
-  // Add query parameters to URL
-  const queryString = new URLSearchParams(query).toString();
-  apiUrl += queryString;
+        // Add query parameters to URL
+        const queryString = new URLSearchParams(query).toString();
+        apiUrl += queryString;
 
-  fetchLoans(apiUrl, loanType);
-}
+        fetchLoans(apiUrl, loanType);
+    }
 
     function renderLoanDetails(loan) {
         const now = new Date();
@@ -1157,116 +1264,116 @@ function showLoansSection(loanType) {
         logDebugInfo('Rejection modal shown', { loanId });
     }
 
-async function approveLoan(loanId, terms) {
-    try {
-        // Show loading state - with null check
-        const confirmBtn = document.getElementById('confirm-approval-btn');
-        if (confirmBtn) {
-            const originalText = confirmBtn.innerHTML;
-            confirmBtn.disabled = true;
-            confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-        }
+    async function approveLoan(loanId, terms) {
+        try {
+            // Show loading state - with null check
+            const confirmBtn = document.getElementById('confirm-approval-btn');
+            if (confirmBtn) {
+                const originalText = confirmBtn.innerHTML;
+                confirmBtn.disabled = true;
+                confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            }
 
-        const response = await fetch(`${API_BASE_URL}/api/admin/loan-applications/${loanId}/approve`, {
-            method: 'PATCH',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(terms)
-        });
+            const response = await fetch(`${API_BASE_URL}/api/admin/loan-applications/${loanId}/approve`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(terms)
+            });
 
-        const data = await response.json();
+            const data = await response.json();
 
-        if (!response.ok) {
-            throw new Error(data.message || 'Failed to approve loan');
-        }
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to approve loan');
+            }
 
-        showNotification('Loan approved successfully', 'success');
-        approvalTermsModal.style.display = 'none';
+            showNotification('Loan approved successfully', 'success');
+            approvalTermsModal.style.display = 'none';
 
-        // Refresh data with visual feedback
-        refreshLoansData();
-        refreshAdminData();
-        logDebugInfo('Loan approved', { loanId, terms });
+            // Refresh data with visual feedback
+            refreshLoansData();
+            refreshAdminData();
+            logDebugInfo('Loan approved', { loanId, terms });
 
-    } catch (error) {
-        console.error('Error approving loan:', error);
-        showNotification(error.message || 'Failed to approve loan', 'error');
-        logDebugError('Loan approval failed', error);
+        } catch (error) {
+            console.error('Error approving loan:', error);
+            showNotification(error.message || 'Failed to approve loan', 'error');
+            logDebugError('Loan approval failed', error);
 
-        // Show detailed error in form if it's a validation error
-        if (error.name === 'ValidationError') {
-            const errorElement = document.getElementById('approval-form-error');
-            if (errorElement) {
-                errorElement.textContent = error.message;
+            // Show detailed error in form if it's a validation error
+            if (error.name === 'ValidationError') {
+                const errorElement = document.getElementById('approval-form-error');
+                if (errorElement) {
+                    errorElement.textContent = error.message;
+                }
+            }
+        } finally {
+            // Reset button state with null check
+            const confirmBtn = document.getElementById('confirm-approval-btn');
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = 'Confirm Approval';
             }
         }
-    } finally {
-        // Reset button state with null check
-        const confirmBtn = document.getElementById('confirm-approval-btn');
-        if (confirmBtn) {
-            confirmBtn.disabled = false;
-            confirmBtn.innerHTML = 'Confirm Approval';
+    }
+
+    async function rejectLoan(loanId, reason) {
+        try {
+            // Show loading state
+            const rejectBtn = document.getElementById('confirm-reject-btn');
+            if (rejectBtn) {
+                const originalText = rejectBtn.innerHTML;
+                rejectBtn.disabled = true;
+                rejectBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            }
+            
+            const response = await fetch(`${API_BASE_URL}/api/admin/loan-applications/${loanId}/reject`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ reason })
+            });
+
+            // Check content type before parsing
+            const contentType = response.headers.get('content-type');
+            let data = {};
+            
+            if (contentType && contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                // Handle non-JSON responses (like HTML errors)
+                const text = await response.text();
+                throw new Error(text || 'Non-JSON response received');
+            }
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to reject loan');
+            }
+            
+            showNotification('Loan rejected successfully', 'success');
+            
+            // Refresh data with visual feedback
+            refreshLoansData();
+            refreshAdminData();
+            logDebugInfo('Loan rejected', { loanId, reason });
+            
+        } catch (error) {
+            console.error('Error rejecting loan:', error);
+            showNotification(error.message || 'Failed to reject loan', 'error');
+            logDebugError('Loan rejection failed', error);
+        } finally {
+            // Reset button state
+            const rejectBtn = document.getElementById('confirm-reject-btn');
+            if (rejectBtn) {
+                rejectBtn.disabled = false;
+                rejectBtn.innerHTML = 'Confirm Rejection';
+            }
         }
     }
-}
-
-async function rejectLoan(loanId, reason) {
-    try {
-        // Show loading state
-        const rejectBtn = document.getElementById('confirm-reject-btn');
-        if (rejectBtn) {
-            const originalText = rejectBtn.innerHTML;
-            rejectBtn.disabled = true;
-            rejectBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-        }
-        
-        const response = await fetch(`${API_BASE_URL}/api/admin/loan-applications/${loanId}/reject`, {
-            method: 'PATCH',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ reason })
-        });
-
-        // Check content type before parsing
-        const contentType = response.headers.get('content-type');
-        let data = {};
-        
-        if (contentType && contentType.includes('application/json')) {
-            data = await response.json();
-        } else {
-            // Handle non-JSON responses (like HTML errors)
-            const text = await response.text();
-            throw new Error(text || 'Non-JSON response received');
-        }
-
-        if (!response.ok) {
-            throw new Error(data.message || 'Failed to reject loan');
-        }
-        
-        showNotification('Loan rejected successfully', 'success');
-        
-        // Refresh data with visual feedback
-        refreshLoansData();
-        refreshAdminData();
-        logDebugInfo('Loan rejected', { loanId, reason });
-        
-    } catch (error) {
-        console.error('Error rejecting loan:', error);
-        showNotification(error.message || 'Failed to reject loan', 'error');
-        logDebugError('Loan rejection failed', error);
-    } finally {
-        // Reset button state
-        const rejectBtn = document.getElementById('confirm-reject-btn');
-        if (rejectBtn) {
-            rejectBtn.disabled = false;
-            rejectBtn.innerHTML = 'Confirm Rejection';
-        }
-    }
-}
 
     // Enhanced approval form submission handler
     document.getElementById('approvalTermsForm')?.addEventListener('submit', function(e) {
@@ -1481,133 +1588,45 @@ async function rejectLoan(loanId, reason) {
         }
     }
 
-async function rejectPayment(paymentId) {
-    const reason = prompt('Enter rejection reason:');
-    if (!reason || reason.trim() === '') {
-        alert('Please enter a valid reason');
-        return;
-    }
-    
-    try {
-        // Use the unified status endpoint with proper request body
-        const response = await fetch(`${API_BASE_URL}/api/admin/payments/${paymentId}/status`, {
-            method: 'PATCH',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 
-                status: 'rejected',  // Required status field
-                reason             // Rejection reason
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.message || 'Failed to reject payment');
-        }
-        
-        showNotification('Payment rejected successfully', 'success');
-        refreshPendingPayments();
-        logDebugInfo('Payment rejected', { paymentId, reason });
-        
-    } catch (error) {
-        console.error('Error rejecting payment:', error);
-        showNotification(error.message || 'Failed to reject payment', 'error');
-        logDebugError('Payment rejection failed', error);
-    }
-}
-
-    // ==================== CUSTOMER MANAGEMENT FUNCTIONS ====================
-// FIXED: Search customer function
-// ==================== FIXED: Search customer function ====================
-async function searchCustomer() {
-    const searchTerm = searchCustomerInput.value.trim();
-    
-    // Clear previous results and show loading state
-    customerDetailsContainer.innerHTML = '<div class="loading-spinner"></div>';
-    searchCustomerInput.disabled = true;
-    
-    if (!searchTerm) {
-        showNotification('Please enter a search term', 'error');
-        customerDetailsContainer.innerHTML = '';
-        searchCustomerInput.disabled = false;
-        return;
-    }
-    
-    try {
-        // Show loading indicator on search button
-        const searchButton = document.getElementById('search-customer-btn');
-        const originalButtonText = searchButton?.innerHTML || '';
-        if (searchButton) {
-            searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
-            searchButton.disabled = true;
-        }
-        
-        // FIXED: Correct API endpoint and parameter name
-        const response = await fetch(`${API_BASE_URL}/api/admin/customers?search=${encodeURIComponent(searchTerm)}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
-            }
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || `Search failed with status ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        // FIXED: Extract the customer list from data.data
-        const customers = data.data || [];
-        
-        if (!customers || customers.length === 0) {
-            // FIXED: More descriptive no results message
-            customerDetailsContainer.innerHTML = `
-                <div class="no-results">
-                    <i class="fas fa-search"></i>
-                    <h4>No customers found</h4>
-                    <p>Try searching by full name, phone number, or customer ID</p>
-                    <p>Examples: "John Doe", "0712345678", "CUST-123"</p>
-                </div>
-            `;
-            showNotification('No matching customers found', 'info');
+    async function rejectPayment(paymentId) {
+        const reason = prompt('Enter rejection reason:');
+        if (!reason || reason.trim() === '') {
+            alert('Please enter a valid reason');
             return;
         }
         
-        renderCustomerSearchResults(customers);
-        showNotification(`Found ${customers.length} customer(s)`, 'success');
-        logDebugInfo('Customer search results', { searchTerm, results: customers });
-        
-    } catch (error) {
-        console.error('Search error:', error);
-        
-        // Create a user-friendly error display with retry option
-        customerDetailsContainer.innerHTML = `
-            <div class="search-error">
-                <i class="fas fa-exclamation-triangle"></i>
-                <h4>Search Failed</h4>
-                <p>${error.message || 'An error occurred while searching'}</p>
-                <button class="retry-btn" onclick="searchCustomer()">
-                    <i class="fas fa-sync-alt"></i> Try Again
-                </button>
-            </div>
-        `;
-        
-        showNotification(error.message || 'Search failed', 'error');
-        logDebugError('Customer search failed', error);
-    } finally {
-        // Reset button state
-        const searchButton = document.getElementById('search-customer-btn');
-        if (searchButton) {
-            searchButton.innerHTML = originalButtonText;
-            searchButton.disabled = false;
+        try {
+            // Use the unified status endpoint with proper request body
+            const response = await fetch(`${API_BASE_URL}/api/admin/payments/${paymentId}/status`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    status: 'rejected',  // Required status field
+                    reason             // Rejection reason
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to reject payment');
+            }
+            
+            showNotification('Payment rejected successfully', 'success');
+            refreshPendingPayments();
+            logDebugInfo('Payment rejected', { paymentId, reason });
+            
+        } catch (error) {
+            console.error('Error rejecting payment:', error);
+            showNotification(error.message || 'Failed to reject payment', 'error');
+            logDebugError('Payment rejection failed', error);
         }
-        searchCustomerInput.disabled = false;
     }
-}
 
+    // ==================== CUSTOMER MANAGEMENT FUNCTIONS ====================
     function renderCustomerSearchResults(customers) {
         customerDetailsContainer.innerHTML = '';
         
@@ -2250,7 +2269,6 @@ async function searchCustomer() {
     window.viewCustomerProfile = viewCustomerProfile;
     window.showLoanDetails = showLoanDetails;
     window.backToCustomerSearch = backToCustomerSearch;
-    window.backToDashboard = backToDashboard;
     window.searchCustomer = searchCustomer;
 
     // Report type change handler
