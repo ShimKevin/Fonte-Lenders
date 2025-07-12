@@ -183,7 +183,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const bulkUpdateResult = document.getElementById('bulkUpdateResult');
 
     // ==================== CORE FUNCTIONS ====================
-    function backToDashboard() {
+    // Define in global scope immediately
+    window.backToDashboard = function() {
         // Close all open modals
         document.querySelectorAll('.modal').forEach(modal => {
             modal.style.display = 'none';
@@ -203,7 +204,32 @@ document.addEventListener('DOMContentLoaded', function() {
         customerDetailsContainer.innerHTML = '';
         
         logDebugInfo('Navigated back to dashboard');
-    }
+    };
+
+    window.showLoanDetails = async function(loanId) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/admin/loans/${loanId}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to load loan details');
+            }
+            
+            renderLoanDetails(data.loan);
+            loanDetailsModal.style.display = 'flex';
+            logDebugInfo('Loan details shown', data.loan);
+            
+        } catch (error) {
+            console.error('Error loading loan details:', error);
+            showNotification('Failed to load loan details', 'error');
+            logDebugError('Loan details load failed', error);
+        }
+    };
 
     async function fetchLoans(apiUrl, loanType) {
         try {
@@ -366,25 +392,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Back to dashboard handlers
         document.querySelectorAll('.back-to-dashboard').forEach(button => {
-            button.addEventListener('click', backToDashboard);
+            button.addEventListener('click', window.backToDashboard);
         });
         
         // Explicit handler for debug console back button
         const debugBackButton = document.getElementById('debug-back-btn');
         if (debugBackButton) {
-            debugBackButton.addEventListener('click', backToDashboard);
+            debugBackButton.addEventListener('click', window.backToDashboard);
         }
 
         // Handle back buttons reliably
         const hideLoansBtn = document.getElementById('hide-loans-btn');
-        if (hideLoansBtn) hideLoansBtn.addEventListener('click', backToDashboard);
+        if (hideLoansBtn) hideLoansBtn.addEventListener('click', window.backToDashboard);
         
         if (hidePaymentsBtn) {
-            hidePaymentsBtn.addEventListener('click', backToDashboard);
+            hidePaymentsBtn.addEventListener('click', window.backToDashboard);
         }
         
         const backToDashboardBtn = document.getElementById('back-to-dashboard-btn');
-        if (backToDashboardBtn) backToDashboardBtn.addEventListener('click', backToDashboard);
+        if (backToDashboardBtn) {
+            backToDashboardBtn.onclick = null; // Remove existing onclick handler
+            backToDashboardBtn.addEventListener('click', window.backToDashboard);
+        }
 
         // Window click handler for modals
         window.addEventListener('click', function(event) {
@@ -402,8 +431,6 @@ document.addEventListener('DOMContentLoaded', function() {
         // Initialize debug mode
         initDebugMode();
     }
-
-    initAdmin();
 
     // ==================== AUTHENTICATION FUNCTIONS ====================
     async function handleLogin() {
@@ -952,7 +979,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 switch (action) {
                     case 'view':
-                        showLoanDetails(loanId);
+                        window.showLoanDetails(loanId);
                         break;
                     case 'approve':
                         showApprovalTermsModal(loanId);
@@ -1003,7 +1030,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     switch (action) {
                         case 'view':
-                            showLoanDetails(loanId);
+                            window.showLoanDetails(loanId);
                             break;
                         case 'approve':
                             showApprovalTermsModal(loanId);
@@ -1730,7 +1757,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (customer.activeLoan) {
                 customerCard.querySelector('.view-loan-btn').addEventListener('click', function() {
                     const loanId = this.getAttribute('data-loan-id');
-                    showLoanDetails(loanId);
+                    window.showLoanDetails(loanId);
                 });
             }
             
@@ -1902,7 +1929,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (customer.activeLoan) {
             document.querySelector('.view-loan-btn').addEventListener('click', function() {
                 const loanId = this.getAttribute('data-loan-id');
-                showLoanDetails(loanId);
+                window.showLoanDetails(loanId);
             });
         }
     }
@@ -2267,7 +2294,6 @@ document.addEventListener('DOMContentLoaded', function() {
     window.showRecordPaymentModal = showRecordPaymentModal;
     window.updateCustomerLimit = updateCustomerLimit;
     window.viewCustomerProfile = viewCustomerProfile;
-    window.showLoanDetails = showLoanDetails;
     window.backToCustomerSearch = backToCustomerSearch;
     window.searchCustomer = searchCustomer;
 
@@ -2288,4 +2314,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initialize custom date range visibility
     document.getElementById('customDateRange').style.display = 'none';
+
+    // Initialize admin panel
+    initAdmin();
 });
