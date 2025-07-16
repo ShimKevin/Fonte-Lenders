@@ -121,6 +121,7 @@
         transition: all 0.3s;
         position: relative;
         overflow: hidden;
+        cursor: pointer;
     }
 
     .admin-card::before {
@@ -841,7 +842,8 @@
         border: 1px solid rgba(255, 215, 0, 0.2);
         padding: 20px;
         border-radius: 8px;
-        transition: all 0.3s;
+        transition: all 0.3s, transform 0.2s ease;
+        cursor: pointer;
     }
 
     .loan-card:hover {
@@ -1132,24 +1134,28 @@
         </div>
         
         <div class="admin-grid" id="admin-grid">
+            <!-- Loan Applications Card -->
             <div class="admin-card">
                 <h3>Loan Applications</h3>
                 <p id="pending-loans-count">Loading...</p>
                 <button class="luxury-btn" data-loan-type="pending" style="width: 100%; margin-top: 15px;">VIEW</button>
             </div>
             
+            <!-- Active Loans Card -->
             <div class="admin-card">
                 <h3>Active Loans</h3>
                 <p id="active-loans-count">Loading...</p>
                 <button class="luxury-btn" data-loan-type="active" style="width: 100%; margin-top: 15px;">VIEW</button>
             </div>
             
+            <!-- Defaulters Card -->
             <div class="admin-card">
                 <h3>Defaulters</h3>
                 <p id="overdue-loans-count">Loading...</p>
-                <button class="luxury-btn" data-loan-type="overdue" style="width: 100%; margin-top: 15px;">VIEW</button>
+                <button class="luxury-btn" data-loan-type="defaulted" style="width: 100%; margin-top: 15px;">VIEW</button>
             </div>
 
+            <!-- Completed Loans Card -->
             <div class="admin-card">
                 <h3>Completed Loans</h3>
                 <p id="completed-loans-count">Loading...</p>
@@ -1161,7 +1167,7 @@
                 <h3>Customer Management</h3>
                 <div class="form-group">
                     <input type="text" id="searchCustomer" placeholder="Search by ID, Name or Phone">
-                    <button class="luxury-btn" onclick="searchCustomer()" style="width: 100%; margin-top: 10px;">
+                    <button class="luxury-btn" id="search-customer-btn" style="width: 100%; margin-top: 10px;">
                         SEARCH
                     </button>
                 </div>

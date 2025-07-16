@@ -374,12 +374,18 @@ function initAdmin() {
         searchButton.addEventListener('click', searchCustomer);
     }
 
-    // UPDATED: Loan card click handlers using event delegation
+    // FIXED: Dashboard card click handling
     document.getElementById('admin-grid').addEventListener('click', function(e) {
-        const card = e.target.closest('[data-loan-type]');
+        // Get the admin-card element
+        const card = e.target.closest('.admin-card');
+        
         if (card) {
-            const loanType = card.getAttribute('data-loan-type');
-            showLoansSection(loanType);
+            // Get the loan type from the button inside the card
+            const loanTypeBtn = card.querySelector('[data-loan-type]');
+            if (loanTypeBtn) {
+                const loanType = loanTypeBtn.getAttribute('data-loan-type');
+                showLoansSection(loanType);
+            }
         }
     });
 
@@ -431,8 +437,30 @@ function initAdmin() {
     
     // Initialize debug mode
     initDebugMode();
-}
 
+    // FIXED: Loan card click handling in loans section
+    document.addEventListener('click', function(e) {
+        // Find closest loan card element
+        const card = e.target.closest('.loan-card');
+        
+        if (card) {
+            // Prevent opening if click was on a button
+            if (e.target.tagName === 'BUTTON') return;
+            
+            // Get loan ID from data attribute
+            const loanId = card.dataset.loanId;
+            
+            if (loanId) {
+                // Add visual feedback
+                card.style.transform = 'scale(0.98)';
+                setTimeout(() => card.style.transform = '', 150);
+                
+                // Open loan details
+                window.showLoanDetails(loanId);
+            }
+        }
+    });
+}
     // ==================== AUTHENTICATION FUNCTIONS ====================
     async function handleLogin() {
         const username = usernameInput.value.trim();
@@ -913,120 +941,137 @@ function showLoansSection(loanType) {
         });
     }
 
-    function createLoanCard(loan) {
-        const now = new Date();
-        const dueDate = new Date(loan.dueDate);
-        const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-        const isOverdue = daysRemaining < 0;
-        const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
-        const penaltyDays = Math.min(overdueDays, 6);
-        
-        const amountPaid = loan.amountPaid || 0;
-        const totalAmount = loan.totalAmount || (loan.amount + (loan.amount * (loan.interestRate || 15) / 100) + (loan.overdueFees || 0));
-        const amountDue = totalAmount - amountPaid;
-        const progress = Math.min(100, (amountPaid / totalAmount) * 100);
-        
-        const card = document.createElement('div');
-        card.className = `loan-card ${isOverdue ? 'overdue' : ''}`;
-        card.style.minHeight = '300px'; // Fixed minimum height
-        card.style.display = 'flex';
-        card.style.flexDirection = 'column';
-        card.style.justifyContent = 'space-between';
-        card.style.border = '1px solid #e0e0e0';
-        card.style.borderRadius = '8px';
-        card.style.padding = '15px';
-        card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-        card.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
-        
-        card.innerHTML = `
-            <div>
-                <div class="loan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <h4 style="margin: 0; font-size: 16px; font-weight: 600;">${loan.fullName}</h4>
-                    <span class="status-${loan.status}" style="padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase;">
-                        ${loan.status.toUpperCase()}
+function createLoanCard(loan) {
+    const now = new Date();
+    const dueDate = new Date(loan.dueDate);
+    const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+    const isOverdue = daysRemaining < 0;
+    const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
+    const penaltyDays = Math.min(overdueDays, 6);
+    
+    const amountPaid = loan.amountPaid || 0;
+    const totalAmount = loan.totalAmount || (loan.amount + (loan.amount * (loan.interestRate || 15) / 100) + (loan.overdueFees || 0));
+    const amountDue = totalAmount - amountPaid;
+    const progress = Math.min(100, (amountPaid / totalAmount) * 100);
+    
+    const card = document.createElement('div');
+    card.className = `loan-card ${isOverdue ? 'overdue' : ''}`;
+    card.style.minHeight = '300px'; // Fixed minimum height
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    card.style.justifyContent = 'space-between';
+    card.style.border = '1px solid #e0e0e0';
+    card.style.borderRadius = '8px';
+    card.style.padding = '15px';
+    card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+    card.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
+    card.dataset.loanId = loan._id; // Add loan ID to card
+    
+    card.innerHTML = `
+        <div>
+            <div class="loan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h4 style="margin: 0; font-size: 16px; font-weight: 600;">${loan.fullName}</h4>
+                <span class="status-${loan.status}" style="padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase;">
+                    ${loan.status.toUpperCase()}
+                </span>
+            </div>
+            <div class="loan-details" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Principal</span>
+                    <span style="font-weight: 500;">KES ${loan.amount.toLocaleString()}</span>
+                </div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Total Due</span>
+                    <span style="font-weight: 500;">KES ${totalAmount.toLocaleString()}</span>
+                </div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Amount Paid</span>
+                    <span style="font-weight: 500;">KES ${amountPaid.toLocaleString()}</span>
+                </div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Amount Due</span>
+                    <span style="font-weight: 500;">KES ${amountDue.toLocaleString()}</span>
+                </div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">${isOverdue ? 'Days Overdue' : 'Days Remaining'}</span>
+                    <span class="${isOverdue ? 'text-warning' : ''}" style="font-weight: 500;">
+                        ${isOverdue ? overdueDays : daysRemaining}
+                        ${isOverdue && overdueDays > 6 ? ' (penalty capped)' : ''}
                     </span>
                 </div>
-                <div class="loan-details" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Principal</span>
-                        <span style="font-weight: 500;">KES ${loan.amount.toLocaleString()}</span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Total Due</span>
-                        <span style="font-weight: 500;">KES ${totalAmount.toLocaleString()}</span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Amount Paid</span>
-                        <span style="font-weight: 500;">KES ${amountPaid.toLocaleString()}</span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Amount Due</span>
-                        <span style="font-weight: 500;">KES ${amountDue.toLocaleString()}</span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">${isOverdue ? 'Days Overdue' : 'Days Remaining'}</span>
-                        <span class="${isOverdue ? 'text-warning' : ''}" style="font-weight: 500;">
-                            ${isOverdue ? overdueDays : daysRemaining}
-                            ${isOverdue && overdueDays > 6 ? ' (penalty capped)' : ''}
-                        </span>
-                    </div>
-                    <div class="detail" style="display: flex; justify-content: space-between;">
-                        <span style="color: #666;">Due Date</span>
-                        <span style="font-weight: 500;">${formatDate(loan.dueDate)}</span>
-                    </div>
-                </div>
-                <div class="progress-container" style="margin-top: 15px; height: 10px; background: #f0f0f0; border-radius: 5px;">
-                    <div class="progress-bar" style="height: 100%; width: ${progress}%; background: ${progress === 100 ? '#4CAF50' : '#FFD700'}; border-radius: 5px; transition: width 0.5s ease;"></div>
+                <div class="detail" style="display: flex; justify-content: space-between;">
+                    <span style="color: #666;">Due Date</span>
+                    <span style="font-weight: 500;">${formatDate(loan.dueDate)}</span>
                 </div>
             </div>
-            <div class="loan-actions" style="margin-top: auto; display: flex; gap: 10px; padding-top: 15px;">
-                <button class="luxury-btn" data-action="view" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; flex: 1;">View Details</button>
-                ${loan.status === 'pending' ? `
-                    <button class="luxury-btn" data-action="approve" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #4CAF50; color: white; flex: 1;">Approve</button>
-                    <button class="luxury-btn" data-action="reject" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #f44336; color: white; flex: 1;">Reject</button>
-                ` : ''}
-                ${isOverdue ? `
-                    <button class="luxury-btn" data-action="force-complete" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #2196F3; color: white; flex: 1;">Mark Complete</button>
-                ` : ''}
+            <div class="progress-container" style="margin-top: 15px; height: 10px; background: #f0f0f0; border-radius: 5px;">
+                <div class="progress-bar" style="height: 100%; width: ${progress}%; background: ${progress === 100 ? '#4CAF50' : '#FFD700'}; border-radius: 5px; transition: width 0.5s ease;"></div>
             </div>
-        `;
+        </div>
+        <div class="loan-actions" style="margin-top: auto; display: flex; gap: 10px; padding-top: 15px;">
+            <button class="luxury-btn" data-action="view" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; flex: 1;">View Details</button>
+            ${loan.status === 'pending' ? `
+                <button class="luxury-btn" data-action="approve" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #4CAF50; color: white; flex: 1;">Approve</button>
+                <button class="luxury-btn" data-action="reject" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #f44336; color: white; flex: 1;">Reject</button>
+            ` : ''}
+            ${isOverdue ? `
+                <button class="luxury-btn" data-action="force-complete" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #2196F3; color: white; flex: 1;">Mark Complete</button>
+            ` : ''}
+        </div>
+    `;
+    
+    // Add hover effects
+    card.addEventListener('mouseenter', () => {
+        card.style.transform = 'translateY(-2px)';
+        card.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+    });
+    
+    card.addEventListener('mouseleave', () => {
+        card.style.transform = '';
+        card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+    });
+    
+    // ========== FIXED: Card click handling ========== //
+    card.addEventListener('click', function(event) {
+        // Only handle clicks on card body, not buttons
+        if (event.target.tagName === 'BUTTON') return;
         
-        // Add hover effects
-        card.addEventListener('mouseenter', () => {
-            card.style.transform = 'translateY(-2px)';
-            card.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
-        });
-        
-        card.addEventListener('mouseleave', () => {
+        // Add visual feedback
+        card.style.transform = 'scale(0.98)';
+        setTimeout(() => {
             card.style.transform = '';
-            card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-        });
+        }, 150);
         
-        // Add event listeners to buttons
-        card.querySelectorAll('button').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const action = this.getAttribute('data-action');
-                const loanId = this.getAttribute('data-loan-id');
-                
-                switch (action) {
-                    case 'view':
-                        window.showLoanDetails(loanId);
-                        break;
-                    case 'approve':
-                        showApprovalTermsModal(loanId);
-                        break;
-                    case 'reject':
-                        showRejectionModal(loanId);
-                        break;
-                    case 'force-complete':
-                        forceCompleteLoan(loanId);
-                        break;
-                }
-            });
+        // Open loan details
+        window.showLoanDetails(loan._id);
+    });
+    
+    // ========== FIXED: Button click handling ========== //
+    card.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation(); // Prevent card click from firing
+            const action = this.getAttribute('data-action');
+            const loanId = this.getAttribute('data-loan-id');
+            
+            switch (action) {
+                case 'view':
+                    window.showLoanDetails(loanId);
+                    break;
+                case 'approve':
+                    showApprovalTermsModal(loanId);
+                    break;
+                case 'reject':
+                    showRejectionModal(loanId);
+                    break;
+                case 'force-complete':
+                    forceCompleteLoan(loanId);
+                    break;
+            }
         });
-        
-        return card;
-    }
+    });
+    
+    return card;
+}
 
     function renderLoansTable(loans) {
         loansTableBody.innerHTML = '';
