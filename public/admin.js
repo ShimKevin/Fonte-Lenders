@@ -183,7 +183,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const bulkUpdateResult = document.getElementById('bulkUpdateResult');
 
     // ==================== CORE FUNCTIONS ====================
-    // Define in global scope immediately
     window.backToDashboard = function() {
         // Close all open modals
         document.querySelectorAll('.modal').forEach(modal => {
@@ -340,7 +339,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // ==================== INITIALIZATION ====================
+// ==================== INITIALIZATION ====================
 function initAdmin() {
     // Fix favicon 404 error
     const faviconLink = document.createElement('link');
@@ -374,19 +373,28 @@ function initAdmin() {
         searchButton.addEventListener('click', searchCustomer);
     }
 
-    // FIXED: Dashboard card click handling
+    // ====== FIX 1: PROPER CARD CLICK HANDLING ======
     document.getElementById('admin-grid').addEventListener('click', function(e) {
-        // Get the admin-card element
         const card = e.target.closest('.admin-card');
+        if (!card) return;
         
-        if (card) {
-            // Get the loan type from the button inside the card
-            const loanTypeBtn = card.querySelector('[data-loan-type]');
-            if (loanTypeBtn) {
-                const loanType = loanTypeBtn.getAttribute('data-loan-type');
-                showLoansSection(loanType);
-            }
+        // Get loan type from card attribute
+        const loanType = card.getAttribute('data-loan-type');
+        
+        // Only handle cards with loan-type attribute
+        if (loanType) {
+            showLoansSection(loanType);
         }
+    });
+
+    // ====== FIX 2: PREVENT BUTTON CLICK CONFLICTS ======
+    document.querySelectorAll('.admin-card[data-loan-type] .luxury-btn').forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.stopPropagation(); // Prevent triggering card click
+            const card = this.closest('.admin-card');
+            const loanType = card.getAttribute('data-loan-type');
+            showLoansSection(loanType);
+        });
     });
 
     // Modal close handlers
@@ -461,6 +469,7 @@ function initAdmin() {
         }
     });
 }
+
     // ==================== AUTHENTICATION FUNCTIONS ====================
     async function handleLogin() {
         const username = usernameInput.value.trim();
@@ -697,62 +706,63 @@ function initAdmin() {
         logDebugInfo('Dashboard shown');
     }
 
-function showLoansSection(loanType) {
-    currentView = 'loans';
-    currentLoanType = loanType;
-    
-    // Hide other sections
-    pendingPaymentsSection.classList.add('hidden');
-    customerProfileSection.classList.add('hidden');
-    document.getElementById('admin-grid').style.display = 'none';
-    
-    // Show loans section
-    loansSection.classList.remove('hidden');
-    document.getElementById('loans-section-title').textContent = `${loanType.charAt(0).toUpperCase() + loanType.slice(1)} Loans`;
-    
-    // Show appropriate view (grid for active loans, table for others)
-    if (loanType === 'active') {
-        loansGridContainer.style.display = 'block';
-        loansTableContainer.style.display = 'none';
-    } else {
-        loansGridContainer.style.display = 'none';
-        loansTableContainer.style.display = 'block';
+    // ====== FIX 3: IMPROVE showLoansSection FUNCTION ======
+    function showLoansSection(loanType) {
+        try {
+            // Null check for required elements
+            if (!loansSection || !loansGridContainer || !loansTableContainer) {
+                throw new Error('Required DOM elements not found for loans section');
+            }
+
+            currentView = 'loans';
+            currentLoanType = loanType;
+            
+            // Hide other sections
+            pendingPaymentsSection.classList.add('hidden');
+            customerProfileSection.classList.add('hidden');
+            document.getElementById('admin-grid').style.display = 'none';
+            
+            // Show loans section
+            loansSection.classList.remove('hidden');
+            document.getElementById('loans-section-title').textContent = `${loanType.charAt(0).toUpperCase() + loanType.slice(1)} Loans`;
+            
+            // Show appropriate view
+            if (loanType === 'active') {
+                loansGridContainer.style.display = 'block';
+                loansTableContainer.style.display = 'none';
+            } else {
+                loansGridContainer.style.display = 'none';
+                loansTableContainer.style.display = 'block';
+            }
+            
+            // Build API URL with proper filtering
+            let apiUrl = `${API_BASE_URL}/api/admin/loan-applications?`;
+            const statusMap = {
+                'pending': ['pending'],
+                'active': ['active'],
+                'defaulted': ['defaulted'],
+                'completed': ['completed']
+            };
+            
+            if (statusMap[loanType]) {
+                apiUrl += statusMap[loanType].map(s => `status=${s}`).join('&');
+            } else {
+                apiUrl += `status=${loanType}`;
+            }
+            
+            // Fetch loans
+            fetchLoans(apiUrl, loanType);
+            logDebugInfo(`Loans section shown: ${loanType}`, { apiUrl });
+            
+        } catch (error) {
+            console.error('Error in showLoansSection:', error);
+            showNotification('Failed to load loans section. Please try again.', 'error');
+            logDebugError('Error in showLoansSection', error);
+            
+            // Fallback to dashboard if loan section fails
+            showDashboard();
+        }
     }
-    
-    // Build the API URL with proper filtering
-    let apiUrl = `${API_BASE_URL}/api/admin/loan-applications?`;
-    
-    // Handle different loan types with appropriate status filters
-    switch(loanType) {
-        case 'active':
-            // Show active AND defaulted loans (both are considered "active" until fully paid)
-            apiUrl += 'status=active&status=defaulted';
-            break;
-            
-        case 'completed':
-            // Show only fully paid/completed loans
-            apiUrl += 'status=completed';
-            break;
-            
-        case 'pending':
-            // Show pending loans (exclude rejected)
-            apiUrl += 'status=pending';
-            break;
-            
-        case 'all':
-            // Show all loans EXCEPT rejected
-            apiUrl += 'status=active&status=defaulted&status=completed&status=pending';
-            break;
-            
-        default:
-            // For any other loan type, use the type as status but exclude rejected
-            apiUrl += `status=${loanType}`;
-    }
-    
-    // Fetch loans with the constructed URL
-    fetchLoans(apiUrl, loanType);
-    logDebugInfo(`Loans section shown: ${loanType}`, { apiUrl });
-}
 
     function showPendingPayments() {
         currentView = 'pending-payments';
@@ -941,137 +951,139 @@ function showLoansSection(loanType) {
         });
     }
 
-function createLoanCard(loan) {
-    const now = new Date();
-    const dueDate = new Date(loan.dueDate);
-    const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-    const isOverdue = daysRemaining < 0;
-    const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
-    const penaltyDays = Math.min(overdueDays, 6);
-    
-    const amountPaid = loan.amountPaid || 0;
-    const totalAmount = loan.totalAmount || (loan.amount + (loan.amount * (loan.interestRate || 15) / 100) + (loan.overdueFees || 0));
-    const amountDue = totalAmount - amountPaid;
-    const progress = Math.min(100, (amountPaid / totalAmount) * 100);
-    
-    const card = document.createElement('div');
-    card.className = `loan-card ${isOverdue ? 'overdue' : ''}`;
-    card.style.minHeight = '300px'; // Fixed minimum height
-    card.style.display = 'flex';
-    card.style.flexDirection = 'column';
-    card.style.justifyContent = 'space-between';
-    card.style.border = '1px solid #e0e0e0';
-    card.style.borderRadius = '8px';
-    card.style.padding = '15px';
-    card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-    card.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
-    card.dataset.loanId = loan._id; // Add loan ID to card
-    
-    card.innerHTML = `
-        <div>
-            <div class="loan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h4 style="margin: 0; font-size: 16px; font-weight: 600;">${loan.fullName}</h4>
-                <span class="status-${loan.status}" style="padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase;">
-                    ${loan.status.toUpperCase()}
-                </span>
-            </div>
-            <div class="loan-details" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
-                <div class="detail" style="display: flex; justify-content: space-between;">
-                    <span style="color: #666;">Principal</span>
-                    <span style="font-weight: 500;">KES ${loan.amount.toLocaleString()}</span>
-                </div>
-                <div class="detail" style="display: flex; justify-content: space-between;">
-                    <span style="color: #666;">Total Due</span>
-                    <span style="font-weight: 500;">KES ${totalAmount.toLocaleString()}</span>
-                </div>
-                <div class="detail" style="display: flex; justify-content: space-between;">
-                    <span style="color: #666;">Amount Paid</span>
-                    <span style="font-weight: 500;">KES ${amountPaid.toLocaleString()}</span>
-                </div>
-                <div class="detail" style="display: flex; justify-content: space-between;">
-                    <span style="color: #666;">Amount Due</span>
-                    <span style="font-weight: 500;">KES ${amountDue.toLocaleString()}</span>
-                </div>
-                <div class="detail" style="display: flex; justify-content: space-between;">
-                    <span style="color: #666;">${isOverdue ? 'Days Overdue' : 'Days Remaining'}</span>
-                    <span class="${isOverdue ? 'text-warning' : ''}" style="font-weight: 500;">
-                        ${isOverdue ? overdueDays : daysRemaining}
-                        ${isOverdue && overdueDays > 6 ? ' (penalty capped)' : ''}
+    function createLoanCard(loan) {
+        const now = new Date();
+        const dueDate = new Date(loan.dueDate);
+        const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+        const isOverdue = daysRemaining < 0;
+        const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
+        const penaltyDays = Math.min(overdueDays, 6);
+        
+        const amountPaid = loan.amountPaid || 0;
+        const totalAmount = loan.totalAmount || (loan.amount + (loan.amount * (loan.interestRate || 15) / 100) + (loan.overdueFees || 0));
+        const amountDue = totalAmount - amountPaid;
+        const progress = Math.min(100, (amountPaid / totalAmount) * 100);
+        
+        const card = document.createElement('div');
+        card.className = `loan-card ${isOverdue ? 'overdue' : ''}`;
+        card.style.minHeight = '300px'; // Fixed minimum height
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        card.style.justifyContent = 'space-between';
+        card.style.border = '1px solid #e0e0e0';
+        card.style.borderRadius = '8px';
+        card.style.padding = '15px';
+        card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        card.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
+        card.dataset.loanId = loan._id; // Add loan ID to card
+        
+        card.innerHTML = `
+            <div>
+                <div class="loan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h4 style="margin: 0; font-size: 16px; font-weight: 600;">${loan.fullName}</h4>
+                    <span class="status-${loan.status}" style="padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase;">
+                        ${loan.status.toUpperCase()}
                     </span>
                 </div>
-                <div class="detail" style="display: flex; justify-content: space-between;">
-                    <span style="color: #666;">Due Date</span>
-                    <span style="font-weight: 500;">${formatDate(loan.dueDate)}</span>
+                <div class="loan-details" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+                    <div class="detail" style="display: flex; justify-content: space-between;">
+                        <span style="color: #666;">Principal</span>
+                        <span style="font-weight: 500;">KES ${loan.amount.toLocaleString()}</span>
+                    </div>
+                    <div class="detail" style="display: flex; justify-content: space-between;">
+                        <span style="color: #666;">Total Due</span>
+                        <span style="font-weight: 500;">KES ${totalAmount.toLocaleString()}</span>
+                    </div>
+                    <div class="detail" style="display: flex; justify-content: space-between;">
+                        <span style="color: #666;">Amount Paid</span>
+                        <span style="font-weight: 500;">KES ${amountPaid.toLocaleString()}</span>
+                    </div>
+                    <div class="detail" style="display: flex; justify-content: space-between;">
+                        <span style="color: #666;">Amount Due</span>
+                        <span style="font-weight: 500;">KES ${amountDue.toLocaleString()}</span>
+                    </div>
+                    <div class="detail" style="display: flex; justify-content: space-between;">
+                        <span style="color: #666;">${isOverdue ? 'Days Overdue' : 'Days Remaining'}</span>
+                        <span class="${isOverdue ? 'text-warning' : ''}" style="font-weight: 500;">
+                            ${isOverdue ? overdueDays : daysRemaining}
+                            ${isOverdue && overdueDays > 6 ? ' (penalty capped)' : ''}
+                        </span>
+                    </div>
+                    <div class="detail" style="display: flex; justify-content: space-between;">
+                        <span style="color: #666;">Due Date</span>
+                        <span style="font-weight: 500;">${formatDate(loan.dueDate)}</span>
+                    </div>
+                </div>
+                <div class="progress-container" style="margin-top: 15px; height: 10px; background: #f0f0f0; border-radius: 5px;">
+                    <div class="progress-bar" style="height: 100%; width: ${progress}%; background: ${progress === 100 ? '#4CAF50' : '#FFD700'}; border-radius: 5px; transition: width 0.5s ease;"></div>
                 </div>
             </div>
-            <div class="progress-container" style="margin-top: 15px; height: 10px; background: #f0f0f0; border-radius: 5px;">
-                <div class="progress-bar" style="height: 100%; width: ${progress}%; background: ${progress === 100 ? '#4CAF50' : '#FFD700'}; border-radius: 5px; transition: width 0.5s ease;"></div>
+            <div class="loan-actions" style="margin-top: auto; display: flex; gap: 10px; padding-top: 15px;">
+                <button class="luxury-btn" data-action="view" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; flex: 1;">View Details</button>
+                ${loan.status === 'pending' ? `
+                    <button class="luxury-btn" data-action="approve" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #4CAF50; color: white; flex: 1;">Approve</button>
+                    <button class="luxury-btn" data-action="reject" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #f44336; color: white; flex: 1;">Reject</button>
+                ` : ''}
+                ${isOverdue ? `
+                    <button class="luxury-btn" data-action="force-complete" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #2196F3; color: white; flex: 1;">Mark Complete</button>
+                ` : ''}
             </div>
-        </div>
-        <div class="loan-actions" style="margin-top: auto; display: flex; gap: 10px; padding-top: 15px;">
-            <button class="luxury-btn" data-action="view" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; flex: 1;">View Details</button>
-            ${loan.status === 'pending' ? `
-                <button class="luxury-btn" data-action="approve" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #4CAF50; color: white; flex: 1;">Approve</button>
-                <button class="luxury-btn" data-action="reject" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #f44336; color: white; flex: 1;">Reject</button>
-            ` : ''}
-            ${isOverdue ? `
-                <button class="luxury-btn" data-action="force-complete" data-loan-id="${loan._id}" style="padding: 8px 15px; font-size: 14px; background: #2196F3; color: white; flex: 1;">Mark Complete</button>
-            ` : ''}
-        </div>
-    `;
-    
-    // Add hover effects
-    card.addEventListener('mouseenter', () => {
-        card.style.transform = 'translateY(-2px)';
-        card.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
-    });
-    
-    card.addEventListener('mouseleave', () => {
-        card.style.transform = '';
-        card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-    });
-    
-    // ========== FIXED: Card click handling ========== //
-    card.addEventListener('click', function(event) {
-        // Only handle clicks on card body, not buttons
-        if (event.target.tagName === 'BUTTON') return;
+        `;
         
-        // Add visual feedback
-        card.style.transform = 'scale(0.98)';
-        setTimeout(() => {
-            card.style.transform = '';
-        }, 150);
-        
-        // Open loan details
-        window.showLoanDetails(loan._id);
-    });
-    
-    // ========== FIXED: Button click handling ========== //
-    card.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', function(e) {
-            e.stopPropagation(); // Prevent card click from firing
-            const action = this.getAttribute('data-action');
-            const loanId = this.getAttribute('data-loan-id');
-            
-            switch (action) {
-                case 'view':
-                    window.showLoanDetails(loanId);
-                    break;
-                case 'approve':
-                    showApprovalTermsModal(loanId);
-                    break;
-                case 'reject':
-                    showRejectionModal(loanId);
-                    break;
-                case 'force-complete':
-                    forceCompleteLoan(loanId);
-                    break;
-            }
+        // Add hover effects
+        card.addEventListener('mouseenter', () => {
+            card.style.transform = 'translateY(-2px)';
+            card.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
         });
-    });
-    
-    return card;
-}
+        
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = '';
+            card.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        });
+        
+        // ========== IMPROVED: Card click handling ========== //
+        card.addEventListener('click', function(event) {
+            // Ignore clicks on buttons or inside buttons
+            if (event.target.closest('button')) return;
+            
+            // Add visual feedback
+            card.style.transform = 'scale(0.98)';
+            setTimeout(() => {
+                card.style.transform = '';
+            }, 150);
+            
+            // Open loan details
+            window.showLoanDetails(loan._id);
+        });
+        
+        // ========== FIXED: Button click handling ========== //
+        card.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                // Prevent card click from firing
+                e.stopPropagation();
+                
+                const action = this.getAttribute('data-action');
+                const loanId = this.getAttribute('data-loan-id');
+                
+                switch (action) {
+                    case 'view':
+                        window.showLoanDetails(loanId);
+                        break;
+                    case 'approve':
+                        showApprovalTermsModal(loanId);
+                        break;
+                    case 'reject':
+                        showRejectionModal(loanId);
+                        break;
+                    case 'force-complete':
+                        forceCompleteLoan(loanId);
+                        break;
+                }
+            });
+        });
+        
+        return card;
+    }
 
     function renderLoansTable(loans) {
         loansTableBody.innerHTML = '';
@@ -1120,63 +1132,6 @@ function createLoanCard(loan) {
             
             loansTableBody.appendChild(row);
         });
-    }
-
-    function showLoansSection(loanType) {
-        // Hide all sections first
-        document.querySelectorAll('.loans-section').forEach(section => {
-            section.style.display = 'none';
-        });
-        
-        // Show the selected section
-        const sectionId = `${loanType}-loans`;
-        const selectedSection = document.getElementById(sectionId);
-        if (selectedSection) {
-            selectedSection.style.display = 'block';
-        }
-
-        // Set the active button
-        document.querySelectorAll('.loans-nav-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        event.target.classList.add('active');
-
-        // Fetch and display loans based on type
-        let apiUrl = `${API_BASE_URL}/api/admin/loan-applications?`;
-        let query = {};
-        
-        if (loanType === 'pending') {
-            query.status = 'pending';
-            loansGridContainer.style.display = 'block';
-            loansTableContainer.style.display = 'none';
-        } else if (loanType === 'active') {
-            // Include both active and defaulted loans
-            query.status = { $in: ['active', 'defaulted'] };
-            loansGridContainer.style.display = 'block';
-            loansTableContainer.style.display = 'none';
-        } else if (loanType === 'completed') {
-            query.status = 'completed';
-            loansGridContainer.style.display = 'none';
-            loansTableContainer.style.display = 'block';
-        } else if (loanType === 'defaulted') {
-            query.status = 'defaulted';
-            loansGridContainer.style.display = 'none';
-            loansTableContainer.style.display = 'block';
-        } else if (loanType === 'rejected') {
-            query.status = 'rejected';
-            loansGridContainer.style.display = 'grid';
-            loansTableContainer.style.display = 'none';
-        } else if (loanType === 'all') {
-            // No status filter for all
-            loansGridContainer.style.display = 'none';
-            loansTableContainer.style.display = 'block';
-        }
-
-        // Add query parameters to URL
-        const queryString = new URLSearchParams(query).toString();
-        apiUrl += queryString;
-
-        fetchLoans(apiUrl, loanType);
     }
 
     function renderLoanDetails(loan) {
@@ -2363,7 +2318,6 @@ function createLoanCard(loan) {
     }
 
     // ==================== GLOBAL FUNCTION EXPORTS ====================
-    // These functions need to be available in the global scope for HTML onclick handlers
     window.showApprovalTermsModal = showApprovalTermsModal;
     window.showRejectionModal = showRejectionModal;
     window.forceCompleteLoan = forceCompleteLoan;
