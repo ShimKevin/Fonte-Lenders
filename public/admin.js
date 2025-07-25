@@ -205,30 +205,35 @@ document.addEventListener('DOMContentLoaded', function() {
         logDebugInfo('Navigated back to dashboard');
     };
 
-    window.showLoanDetails = async function(loanId) {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/admin/loans/${loanId}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
-                }
-            });
-            
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to load loan details');
+window.showLoanDetails = async function(loanId) {
+    try {
+        // FIXED: Corrected endpoint from '/loans' to '/loan-applications'
+        const response = await fetch(`${API_BASE_URL}/api/admin/loan-applications/${loanId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
             }
-            
-            renderLoanDetails(data.loan);
-            loanDetailsModal.style.display = 'flex';
-            logDebugInfo('Loan details shown', data.loan);
-            
-        } catch (error) {
-            console.error('Error loading loan details:', error);
-            showNotification('Failed to load loan details', 'error');
-            logDebugError('Loan details load failed', error);
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to load loan details');
         }
-    };
+        
+        renderLoanDetails(data.loan);
+        loanDetailsModal.style.display = 'flex';
+        logDebugInfo('Loan details shown', data.loan);
+        
+    } catch (error) {
+        console.error('Error loading loan details:', error);
+        showNotification('Failed to load loan details', 'error');
+        logDebugError('Loan details load failed', {
+            error: error.message,
+            loanId,
+            endpoint: `${API_BASE_URL}/api/admin/loan-applications/${loanId}`
+        });
+    }
+};
 
     async function fetchLoans(apiUrl, loanType) {
         try {
@@ -1134,135 +1139,138 @@ function initAdmin() {
         });
     }
 
-    function renderLoanDetails(loan) {
-        const now = new Date();
-        const dueDate = new Date(loan.dueDate);
-        const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-        const isOverdue = daysRemaining < 0;
-        const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
-        const penaltyDays = Math.min(overdueDays, 6);
-        
-        const amountPaid = loan.amountPaid || 0;
-        const totalAmount = loan.totalAmount || (loan.amount + (loan.amount * (loan.interestRate || 15) / 100) + (loan.overdueFees || 0));
-        const amountDue = totalAmount - amountPaid;
-        const progress = Math.min(100, (amountPaid / totalAmount) * 100);
-        
-        document.getElementById('loanDetailsTitle').textContent = `Loan Details - ${loan.fullName}`;
-        
-        loanDetailsContent.innerHTML = `
-            <div class="loan-details">
-                <div class="detail-row">
-                    <span><strong>Loan ID:</strong></span>
-                    <span>${loan._id}</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Status:</strong></span>
-                    <span class="status-${loan.status}">${loan.status.toUpperCase()}</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Customer:</strong></span>
-                    <span>${loan.fullName} (${loan.phoneNumber})</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Principal Amount:</strong></span>
-                    <span>KES ${loan.amount.toLocaleString()}</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Interest Rate:</strong></span>
-                    <span>${loan.interestRate || 15}%</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Total Amount:</strong></span>
-                    <span>KES ${totalAmount.toLocaleString()}</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Amount Paid:</strong></span>
-                    <span>KES ${amountPaid.toLocaleString()}</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Amount Due:</strong></span>
-                    <span>KES ${amountDue.toLocaleString()}</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>${isOverdue ? 'Days Overdue' : 'Days Remaining'}:</strong></span>
-                    <span class="${isOverdue ? 'text-warning' : ''}">
-                        ${isOverdue ? overdueDays : daysRemaining}
-                        ${isOverdue && overdueDays > 6 ? ' (penalty capped at 6 days)' : ''}
-                    </span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Due Date:</strong></span>
-                    <span>${formatDate(loan.dueDate)}</span>
-                </div>
-                <div class="detail-row">
-                    <span><strong>Created:</strong></span>
-                    <span>${formatDate(loan.createdAt)}</span>
-                </div>
-                ${loan.approvedAt ? `
-                <div class="detail-row">
-                    <span><strong>Approved:</strong></span>
-                    <span>${formatDate(loan.approvedAt)}</span>
-                </div>
-                ` : ''}
-                ${loan.adminNotes ? `
-                <div class="detail-row">
-                    <span><strong>Admin Notes:</strong></span>
-                    <span>${loan.adminNotes}</span>
-                </div>
-                ` : ''}
+function renderLoanDetails(loan) {
+    const now = new Date();
+    const dueDate = new Date(loan.dueDate);
+    const daysRemaining = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+    const isOverdue = daysRemaining < 0;
+    const overdueDays = isOverdue ? Math.abs(daysRemaining) : 0;
+    const penaltyDays = Math.min(overdueDays, 6);
+    
+    const amountPaid = loan.amountPaid || 0;
+    const totalAmount = loan.totalAmount || (loan.amount + (loan.amount * (loan.interestRate || 15) / 100) + (loan.overdueFees || 0));
+    const amountDue = totalAmount - amountPaid;
+    const progress = Math.min(100, (amountPaid / totalAmount) * 100);
+    
+    document.getElementById('loanDetailsTitle').textContent = `Loan Details - ${loan.fullName}`;
+    
+    loanDetailsContent.innerHTML = `
+        <div class="loan-details">
+            <div class="detail-row">
+                <span><strong>Loan ID:</strong></span>
+                <span>${loan._id}</span>
             </div>
-            
-            <div class="payment-history">
-                <h4>Payment History</h4>
-                ${loan.repaymentSchedule && loan.repaymentSchedule.length > 0 ? `
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-                        <thead>
+            <div class="detail-row">
+                <span><strong>Status:</strong></span>
+                <span class="status-${loan.status}">${loan.status.toUpperCase()}</span>
+            </div>
+            <div class="detail-row">
+                <span><strong>Customer:</strong></span>
+                <span>${loan.fullName} (${loan.phoneNumber})</span>
+            </div>
+            <div class="detail-row">
+                <span><strong>Principal Amount:</strong></span>
+                <span>KES ${loan.amount.toLocaleString()}</span>
+            </div>
+            <div class="detail-row">
+                <span><strong>Interest Rate:</strong></span>
+                <span>${loan.interestRate || 15}%</span>
+            </div>
+            <div class="detail-row">
+                <span><strong>Total Amount:</strong></span>
+                <span>KES ${totalAmount.toLocaleString()}</span>
+            </div>
+            <div class="detail-row">
+                <span><strong>Amount Paid:</strong></span>
+                <span>KES ${amountPaid.toLocaleString()}</span>
+            </div>
+            <div class="detail-row">
+                <span><strong>Amount Due:</strong></span>
+                <span>KES ${amountDue.toLocaleString()}</span>
+            </div>
+            <div class="detail-row">
+                <span><strong>${isOverdue ? 'Days Overdue' : 'Days Remaining'}:</strong></span>
+                <span class="${isOverdue ? 'text-warning' : ''}">
+                    ${isOverdue ? overdueDays : daysRemaining}
+                    ${isOverdue && overdueDays > 6 ? ' (penalty capped at 6 days)' : ''}
+                </span>
+            </div>
+            <div class="detail-row">
+                <span><strong>Due Date:</strong></span>
+                <span>${formatDate(loan.dueDate)}</span>
+            </div>
+            <div class="detail-row">
+                <span><strong>Created:</strong></span>
+                <span>${formatDate(loan.createdAt)}</span>
+            </div>
+            ${loan.approvedAt ? `
+            <div class="detail-row">
+                <span><strong>Approved:</strong></span>
+                <span>${formatDate(loan.approvedAt)}</span>
+            </div>
+            ` : ''}
+            ${loan.adminNotes ? `
+            <div class="detail-row">
+                <span><strong>Admin Notes:</strong></span>
+                <span>${loan.adminNotes}</span>
+            </div>
+            ` : ''}
+        </div>
+        
+        <div class="payment-history">
+            <h4>Payment History</h4>
+            ${loan.repaymentSchedule && loan.repaymentSchedule.length > 0 ? `
+                <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Due Date</th>
+                            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Amount</th>
+                            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Paid</th>
+                            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${loan.repaymentSchedule.map(payment => `
                             <tr>
-                                <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Due Date</th>
-                                <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Amount</th>
-                                <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Paid</th>
-                                <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Status</th>
+                                <td style="padding: 8px; border-bottom: 1px solid #ddd;">${formatDate(payment.dueDate)}</td>
+                                <td style="padding: 8px; border-bottom: 1px solid #ddd;">KES ${payment.amount.toLocaleString()}</td>
+                                <td style="padding: 8px; border-bottom: 1px solid #ddd;">KES ${payment.paidAmount || 0}</td>
+                                <td style="padding: 8px; border-bottom: 1px solid #ddd;" class="status-${payment.status}">${payment.status.toUpperCase()}</td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            ${loan.repaymentSchedule.map(payment => `
-                                <tr>
-                                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">${formatDate(payment.dueDate)}</td>
-                                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">KES ${payment.amount.toLocaleString()}</td>
-                                    <td style="padding: 8px; border-bottom: 1px solid #ddd;">KES ${payment.paidAmount || 0}</td>
-                                    <td style="padding: 8px; border-bottom: 1px solid #ddd;" class="status-${payment.status}">${payment.status.toUpperCase()}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                ` : '<p>No payment history available</p>'}
-            </div>
-            
-            <div class="loan-actions" style="margin-top: 20px; display: flex; gap: 10px;">
-                <button class="luxury-btn" onclick="window.location.href='/api/admin/loans/${loan._id}/documents'" style="padding: 10px 15px;">
-                    View Documents
+                        `).join('')}
+                    </tbody>
+                </table>
+            ` : '<p>No payment history available</p>'}
+        </div>
+        
+        <div class="loan-actions" style="margin-top: 20px; display: flex; gap: 10px;">
+            <!-- FIXED: Corrected documents endpoint -->
+            <button class="luxury-btn" 
+                    onclick="window.location.href='/api/admin/loan-applications/${loan._id}/documents'" 
+                    style="padding: 10px 15px;">
+                View Documents
+            </button>
+            ${loan.status === 'pending' ? `
+                <button class="luxury-btn" onclick="showApprovalTermsModal('${loan._id}')" style="padding: 10px 15px; background: #4CAF50;">
+                    Approve Loan
                 </button>
-                ${loan.status === 'pending' ? `
-                    <button class="luxury-btn" onclick="showApprovalTermsModal('${loan._id}')" style="padding: 10px 15px; background: #4CAF50;">
-                        Approve Loan
-                    </button>
-                    <button class="luxury-btn" onclick="showRejectionModal('${loan._id}')" style="padding: 10px 15px; background: #f44336;">
-                        Reject Loan
-                    </button>
-                ` : ''}
-                ${isOverdue ? `
-                    <button class="luxury-btn" onclick="forceCompleteLoan('${loan._id}')" style="padding: 10px 15px; background: #2196F3;">
-                        Mark Complete
-                    </button>
-                ` : ''}
-                ${loan.status === 'active' || loan.status === 'defaulted' ? `
-                    <button class="luxury-btn" onclick="showRecordPaymentModal('${loan._id}')" style="padding: 10px 15px; background: #FFD700; color: #000;">
-                        Record Payment
-                    </button>
-                ` : ''}
-            </div>
-        `;
-    }
+                <button class="luxury-btn" onclick="showRejectionModal('${loan._id}')" style="padding: 10px 15px; background: #f44336;">
+                    Reject Loan
+                </button>
+            ` : ''}
+            ${isOverdue ? `
+                <button class="luxury-btn" onclick="forceCompleteLoan('${loan._id}')" style="padding: 10px 15px; background: #2196F3;">
+                    Mark Complete
+                </button>
+            ` : ''}
+            ${loan.status === 'active' || loan.status === 'defaulted' ? `
+                <button class="luxury-btn" onclick="showRecordPaymentModal('${loan._id}')" style="padding: 10px 15px; background: #FFD700; color: #000;">
+                    Record Payment
+                </button>
+            ` : ''}
+        </div>
+    `;
+}
 
     function showApprovalTermsModal(loanId) {
         // Reset form and set default values

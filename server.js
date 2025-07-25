@@ -717,6 +717,8 @@ app.get('/admin.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
+
+
 // ==================== MIDDLEWARE ====================
 app.use(cors({
   origin: function (origin, callback) {
@@ -1011,8 +1013,6 @@ const paymentSchemaJoi = Joi.object({
   reference: Joi.string().required().pattern(/[a-zA-Z0-9]{8,}/),
   amount: Joi.number().required().min(100).max(1000000)
 });
-
-// ==================== ROUTES ====================
 
 // ==================== ADMIN ROUTES ====================
 app.get('/admin', (req, res) => {
@@ -3826,7 +3826,11 @@ async function sendSMSNotification(phoneNumber, application) {
   console.log(`SMS notification would be sent to ${phoneNumber} for application ${application._id}`);
 }
 
-// ==================== ERROR HANDLER ====================
+// ==================== CATCH-ALL FOR CLIENT-SIDE ROUTING ====================
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // ==================== ENHANCED ERROR HANDLER ====================
 app.use((err, req, res, next) => {
   // Log the full error in development, sanitized version in production
