@@ -4024,20 +4024,34 @@ const startServer = async () => {
     await createInitialAdmin();
     
     // Run initial loan status update after DB connection
-    updateLoanStatusesJob();  // <<-- ADDED THIS LINE
+    updateLoanStatusesJob();
 
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 MongoDB state: ${mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'}`);
     });
 
+    // Updated SIGTERM handler with graceful shutdown
     process.on('SIGTERM', () => {
       console.log('🛑 SIGTERM received. Shutting down gracefully...');
-      server.close(() => {
-        mongoose.connection.close(false, () => {
+      
+      // Add shutdown timeout
+      const shutdownTimer = setTimeout(() => {
+        console.error('⏰ Shutdown timeout forced. Terminating process.');
+        process.exit(1);
+      }, 5000); // 5 second timeout
+      
+      server.close(async () => {
+        try {
+          // Close MongoDB connection using promise-based API
+          await mongoose.connection.close();
           console.log('🚪 Server and MongoDB connection closed');
+          clearTimeout(shutdownTimer);
           process.exit(0);
-        });
+        } catch (err) {
+          console.error('❌ Error closing MongoDB connection', err);
+          process.exit(1);
+        }
       });
     });
 
